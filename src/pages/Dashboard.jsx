@@ -1,0 +1,1254 @@
+import { useState, useEffect } from "react";
+import axios from "axios";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import TenderForm from "./TenderForm";
+import Sidebar from "../components/Sidebar";
+import StatCard from "../components/StatCard";
+import {
+  FiEdit,
+  FiTrash2,
+  FiChevronLeft,
+  FiChevronRight,
+  FiBell,
+  FiCheckCircle,
+  FiMail,
+  FiSearch,
+  FiPlus,
+  FiFileText,
+  FiActivity,
+  FiTrendingUp,
+  FiAlertCircle,
+  FiX,
+  FiInfo,
+  FiExternalLink,
+  FiDownload,
+  FiArrowUp,
+  FiArrowDown
+} from "react-icons/fi";
+
+const COLUMNS = [
+  "SNo",
+  "TenderNumber",
+  "Description",
+  "Vertical",
+  "Deadline",
+  "Status"
+];
+
+const ITEMS_PER_PAGE = 20;
+
+const DetailItem = ({ label, value, isBadge = false }) => (
+  <div className="flex flex-col gap-1">
+    <span className="text-xs text-slate-400 font-medium">{label}</span>
+    {isBadge ? (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase w-fit ${value === 'Won' || value === 'L1' ? 'bg-green-100 text-green-700' :
+        value === 'Active' ? 'bg-blue-100 text-blue-700' :
+          value === 'Rejected' || value === 'Dropped' ? 'bg-red-100 text-red-700' :
+            'bg-slate-100 text-slate-700'
+        }`}>
+        {value || "-"}
+      </span>
+    ) : (
+      <span className="text-sm text-slate-700 font-semibold truncate" title={value}>{value || "-"}</span>
+    )}
+  </div>
+);
+
+const Dashboard = () => {
+  const [activeTab, setActiveTab] = useState("tenders");
+  const [showForm, setShowForm] = useState(false);
+  const [tenders, setTenders] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [editData, setEditData] = useState({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterVertical, setFilterVertical] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [showDetails, setShowDetails] = useState(false);
+  const [selectedTender, setSelectedTender] = useState(null);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailData, setEmailData] = useState({
+    subject: "",
+    message: "",
+    recipientEmail: ""
+  });
+  const [emailStatus, setEmailStatus] = useState(null);
+  const [pendingUsers, setPendingUsers] = useState([]);
+  const [approvingUsers, setApprovingUsers] = useState({}); // {userId: {selectedVerticals: []}}
+
+  // Advanced filtering and sorting state
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [sortField, setSortField] = useState("Deadline");
+  const [sortOrder, setSortOrder] = useState("asc"); // 'asc' or 'desc'
+
+  const token = localStorage.getItem("token");
+  const userRole = localStorage.getItem("userRole");
+  const allowedVerticals = JSON.parse(localStorage.getItem("allowedVerticals") || "[]");
+  const userEmail = localStorage.getItem("userEmail") || "";
+
+  // Function to format deadline for display
+  const formatDeadlineForDisplay = (deadline) => {
+    if (!deadline) return "";
+
+    const date = new Date(deadline);
+
+    // Check if it's exactly midnight in UTC
+    const utcHours = date.getUTCHours();
+    const utcMinutes = date.getUTCMinutes();
+    const utcSeconds = date.getUTCSeconds();
+    const utcMs = date.getUTCMilliseconds();
+
+    const isDateOnly = utcHours === 0 && utcMinutes === 0 && utcSeconds === 0 && utcMs === 0;
+
+    if (isDateOnly) {
+      // For date-only values, use UTC timezone to avoid timezone conversion
+      const options = {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'UTC'
+      };
+      return date.toLocaleDateString('en-IN', options);
+    } else {
+      // For dates with time, show both date and time
+      const dateOptions = {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'UTC'
+      };
+
+      const timeOptions = {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'UTC'
+      };
+
+      const dateStr = date.toLocaleDateString('en-IN', dateOptions);
+      const timeStr = date.toLocaleTimeString('en-IN', timeOptions);
+
+      return `${dateStr}, ${timeStr}`;
+    }
+  };
+
+  const fetchTenders = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/api/tenders", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setTenders(res.data);
+      setCurrentPage(1);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Fetch alerts (tenders due in next 7 days)
+  const fetchAlerts = async () => {
+    try {
+      const tendersRes = await axios.get("http://localhost:5000/api/tenders", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const now = new Date();
+      const sevenDaysLater = new Date(now);
+      sevenDaysLater.setDate(now.getDate() + 7);
+
+      const upcomingTenders = tendersRes.data.filter(tender => {
+        if (!tender.Deadline) return false;
+
+        const deadline = new Date(tender.Deadline);
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const deadlineDate = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
+
+        // Get acknowledged alerts from localStorage
+        const acknowledgedAlerts = JSON.parse(localStorage.getItem('acknowledgedAlerts') || '{}');
+
+        // Check if tender is upcoming (within 7 days) and not acknowledged
+        return deadlineDate >= today &&
+          deadlineDate <= sevenDaysLater &&
+          !acknowledgedAlerts[tender._id];
+      });
+
+      setAlerts(upcomingTenders);
+    } catch (err) {
+      console.error('Error fetching alerts:', err);
+    }
+  };
+
+  const fetchPendingUsers = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/api/auth/pending-users", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setPendingUsers(res.data);
+
+      // Initialize approving users state
+      const initialApprovingState = {};
+      res.data.forEach(user => {
+        initialApprovingState[user._id] = { selectedVerticals: [] };
+      });
+      setApprovingUsers(initialApprovingState);
+    } catch (err) {
+      console.error('Error fetching pending users:', err);
+    }
+  };
+
+  const handleApproveUser = async (userId) => {
+    try {
+      const { selectedVerticals } = approvingUsers[userId];
+      if (selectedVerticals.length === 0) {
+        alert("Please select at least one vertical or 'ALL'");
+        return;
+      }
+
+      await axios.put(`http://localhost:5000/api/auth/approve-user/${userId}`,
+        { allowedVerticals: selectedVerticals },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setEmailStatus({ type: "success", message: "User approved successfully!" });
+      fetchPendingUsers();
+      setTimeout(() => setEmailStatus(null), 3000);
+    } catch (err) {
+      console.error('Error approving user:', err);
+      setEmailStatus({ type: "error", message: `Failed to approve user: ${err.response?.data?.message || err.message}` });
+    }
+  };
+
+  const toggleVertical = (userId, vertical) => {
+    setApprovingUsers(prev => {
+      const userState = { ...prev[userId] };
+      const verticals = [...userState.selectedVerticals];
+
+      if (vertical === 'ALL') {
+        if (verticals.includes('ALL')) {
+          userState.selectedVerticals = [];
+        } else {
+          userState.selectedVerticals = ['ALL'];
+        }
+      } else {
+        // If 'ALL' was selected, remove it when selecting a specific vertical
+        const filteredVerticals = verticals.filter(v => v !== 'ALL');
+        if (filteredVerticals.includes(vertical)) {
+          userState.selectedVerticals = filteredVerticals.filter(v => v !== vertical);
+        } else {
+          userState.selectedVerticals = [...filteredVerticals, vertical];
+        }
+      }
+
+      return { ...prev, [userId]: userState };
+    });
+  };
+
+  const handleDownloadPDF = () => {
+    const doc = new jsPDF();
+
+    // Add Header
+    doc.setFontSize(18);
+    doc.text("Tender Portal - Report", 14, 22);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${new Date().toLocaleDateString('en-IN')}`, 14, 30);
+
+    // Define columns
+    const columns = [
+      { header: "#", dataKey: "index" },
+      { header: "Tender Number", dataKey: "TenderNumber" },
+      { header: "Description", dataKey: "Description" },
+      { header: "Vertical", dataKey: "Vertical" },
+      { header: "Deadline", dataKey: "Deadline" },
+      { header: "Status", dataKey: "Status" }
+    ];
+
+    // Prepare data
+    const rows = filteredTenders.map((tender, idx) => ({
+      index: idx + 1,
+      TenderNumber: tender.TenderNumber || "-",
+      Description: tender.Description || "-",
+      Vertical: tender.Vertical || "-",
+      Deadline: formatDeadlineForDisplay(tender.Deadline) || "-",
+      Status: tender.Status || "-"
+    }));
+
+    autoTable(doc, {
+      startY: 35,
+      columns: columns,
+      body: rows,
+      headStyles: { fillColor: [58, 91, 36] }, // Custom green color matching the UI
+      styles: { fontSize: 8 },
+      alternateRowStyles: { fillColor: [245, 250, 245] }
+    });
+
+    doc.save(`Tender_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
+  useEffect(() => {
+    fetchTenders();
+    fetchAlerts();
+
+    // Set initial vertical filter for non-admin users with restricted access
+    if (userRole !== "admin" && !allowedVerticals.includes("ALL") && allowedVerticals.length === 1) {
+      setFilterVertical(allowedVerticals[0]);
+    }
+  }, []);
+
+  // Send reminder email for specific tender
+  const handleSendReminder = async (tenderId, tenderNumber) => {
+    try {
+      setEmailStatus({ type: "loading", message: "Sending reminder..." });
+
+      const response = await axios.post(
+        `http://localhost:5000/api/tenders/send-reminder/${tenderId}`,
+        { recipientEmail: userEmail },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setEmailStatus({
+        type: "success",
+        message: `✅ Reminder sent for tender ${tenderNumber}!`
+      });
+
+      setTimeout(() => setEmailStatus(null), 5000);
+    } catch (err) {
+      setEmailStatus({
+        type: "error",
+        message: `❌ Failed to send reminder: ${err.response?.data?.error || err.message}`
+      });
+    }
+  };
+
+  // Acknowledge alert
+  const handleAcknowledgeAlert = (tenderId) => {
+    const acknowledgedAlerts = JSON.parse(localStorage.getItem('acknowledgedAlerts') || '{}');
+    acknowledgedAlerts[tenderId] = true;
+    localStorage.setItem('acknowledgedAlerts', JSON.stringify(acknowledgedAlerts));
+
+    // Remove from alerts state
+    setAlerts(prev => prev.filter(alert => alert._id !== tenderId));
+  };
+
+  const startEdit = (tender) => {
+    setEditingId(tender._id);
+    // Format deadline for datetime-local input
+    const formattedData = { ...tender };
+    if (tender.Deadline) {
+      formattedData.Deadline = formatDeadlineForInput(tender.Deadline);
+    }
+    setEditData(formattedData);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditData({});
+  };
+
+  const formatDeadlineForInput = (deadline) => {
+    if (!deadline) return "";
+
+    const date = new Date(deadline);
+
+    // Adjust for timezone offset
+    const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+
+    // Return in YYYY-MM-DDTHH:mm format (datetime-local format)
+    return localDate.toISOString().slice(0, 16);
+  };
+
+  const handleEditChange = (e, key) => {
+    setEditData({ ...editData, [key]: e.target.value });
+  };
+
+  const saveEdit = async (id) => {
+    try {
+      // Prepare the data for update
+      const updateData = { ...editData };
+
+      // Handle deadline conversion from datetime-local to ISO string
+      if (updateData.Deadline) {
+        const date = new Date(updateData.Deadline);
+        // Convert to UTC ISO string
+        updateData.Deadline = date.toISOString();
+      }
+
+      // Remove system fields from update data
+      delete updateData._id;
+      delete updateData.__v;
+      delete updateData.createdAt;
+      delete updateData.updatedAt;
+      delete updateData.createdBy;
+
+      await axios.put(
+        `http://localhost:5000/api/tenders/${id}`,
+        updateData,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setEditingId(null);
+      fetchTenders();
+      fetchAlerts();
+    } catch (err) {
+      console.error("Update error:", err);
+      alert(`Failed to update tender: ${err.response?.data?.message || err.message}`);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this tender?")) return;
+
+    try {
+      await axios.delete(`http://localhost:5000/api/tenders/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      fetchTenders();
+      fetchAlerts(); // Refresh alerts after delete
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete tender");
+    }
+  };
+
+  // Filter and Sort tenders
+  const filteredTenders = tenders.filter((tender) => {
+    const matchesSearch = !searchTerm ||
+      tender.TenderNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      tender.Description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      tender.OrganisationName?.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesVertical = !filterVertical || tender.Vertical === filterVertical;
+    const matchesStatus = !filterStatus || tender.Status === filterStatus;
+
+    // Date range filter
+    let matchesDateRange = true;
+    if (tender.Deadline) {
+      const tenderDate = new Date(tender.Deadline);
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        if (tenderDate < start) matchesDateRange = false;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        if (tenderDate > end) matchesDateRange = false;
+      }
+    } else if (startDate || endDate) {
+      matchesDateRange = false;
+    }
+
+    return matchesSearch && matchesVertical && matchesStatus && matchesDateRange;
+  }).sort((a, b) => {
+    let valA = a[sortField];
+    let valB = b[sortField];
+
+    // Handle null values
+    if (valA === null || valA === undefined) return sortOrder === 'asc' ? 1 : -1;
+    if (valB === null || valB === undefined) return sortOrder === 'asc' ? -1 : 1;
+
+    // Numeric comparison for index or prices if applicable (optional, strings work for most)
+    // For dates, standard string comparison works for ISO strings
+    if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+    if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  // Calculate pagination
+  const totalPages = Math.ceil(filteredTenders.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const currentTenders = filteredTenders.slice(startIndex, endIndex);
+  const hasPreviousPage = currentPage > 1;
+  const hasNextPage = currentPage < totalPages;
+
+  // Handle page change
+  const goToPage = (page) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
+  // Generate page numbers to show
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisiblePages = 5;
+
+    if (totalPages <= maxVisiblePages) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+      let endPage = startPage + maxVisiblePages - 1;
+
+      if (endPage > totalPages) {
+        endPage = totalPages;
+        startPage = Math.max(1, endPage - maxVisiblePages + 1);
+      }
+
+      for (let i = startPage; i <= endPage; i++) {
+        pages.push(i);
+      }
+    }
+
+    return pages;
+  };
+
+  // Calculate days until deadline
+  const getDaysUntilDeadline = (deadline) => {
+    if (!deadline) return 0;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const deadlineDate = new Date(deadline);
+    deadlineDate.setHours(0, 0, 0, 0);
+
+    const diffTime = deadlineDate - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    return diffDays;
+  };
+
+  // Get alert severity based on days until deadline
+  const getAlertSeverity = (days) => {
+    if (days <= 2) return "high";
+    if (days <= 4) return "medium";
+    return "low";
+  };
+
+  // Calculate statistics
+  const stats = {
+    total: tenders.length,
+    active: tenders.filter(t => t.Status === "Active").length,
+    won: tenders.filter(t => ["Won", "L1"].includes(t.Status)).length,
+    urgent: alerts.length
+  };
+
+  return (
+    <div className="flex min-h-screen bg-gradient-to-br from-emerald-50 to-green-50">
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={(tab) => {
+          setActiveTab(tab);
+          if (tab === 'alerts') fetchAlerts();
+          if (tab === 'approvals') fetchPendingUsers();
+        }}
+        alertCount={alerts.length}
+        userEmail={userEmail}
+      />
+
+      <main className="flex-1 ml-0 lg:ml-64 p-4 lg:p-8 transition-all duration-300">
+        {/* Status Message */}
+        {emailStatus && (
+          <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-top-4 ${emailStatus.type === "success"
+            ? "bg-green-100 text-green-800 border border-green-300"
+            : emailStatus.type === "error"
+              ? "bg-red-100 text-red-800 border border-red-300"
+              : "bg-blue-100 text-blue-800 border border-blue-300"
+            }`}>
+            <div className="flex items-center gap-2">
+              {emailStatus.type === "success" && "✅"}
+              {emailStatus.type === "error" && "❌"}
+              {emailStatus.type === "loading" && "⏳"}
+              <span className="font-medium">{emailStatus.message}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Tenders Tab */}
+        {activeTab === "tenders" && (
+          <>
+            {/* Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <StatCard
+                label="Total Tenders"
+                value={stats.total}
+                icon={<FiFileText />}
+                color="green"
+              />
+              <StatCard
+                label="Active Tenders"
+                value={stats.active}
+                icon={<FiActivity />}
+                color="emerald"
+              />
+              <StatCard
+                label="Won / L1"
+                value={stats.won}
+                icon={<FiTrendingUp />}
+                color="green"
+              />
+              <StatCard
+                label="Upcoming Deadlines"
+                value={stats.urgent}
+                icon={<FiAlertCircle />}
+                color="red"
+              />
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              {/* Table Controls */}
+              <div className="p-4 border-b border-slate-100 flex flex-col gap-4">
+                <div className="flex flex-wrap items-center gap-4">
+                  {/* Search */}
+                  <div className="relative w-full md:w-64">
+                    <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search tenders..."
+                      value={searchTerm}
+                      onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
+                    />
+                  </div>
+
+                  {/* Vertical Filter */}
+                  {(() => {
+                    const allVerticals = ["AR/VR", "AI", "AI/UGV", "UGV", "OTHERS", "DRONE/AI", "UAV", "RCWS/AWS"];
+                    const visibleVerticals = (userRole === "admin" || allowedVerticals.includes("ALL"))
+                      ? allVerticals
+                      : allVerticals.filter(v => allowedVerticals.includes(v));
+
+                    if (userRole === "admin" || allowedVerticals.includes("ALL") || visibleVerticals.length > 1) {
+                      return (
+                        <select
+                          value={filterVertical}
+                          onChange={(e) => {
+                            setFilterVertical(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                          className="w-full md:w-40 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm font-medium text-slate-600"
+                        >
+                          <option value="">All Verticals</option>
+                          {visibleVerticals.map(v => (
+                            <option key={v} value={v}>{v}</option>
+                          ))}
+                        </select>
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  {/* Status Filter */}
+                  <select
+                    value={filterStatus}
+                    onChange={(e) => {
+                      setFilterStatus(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full md:w-40 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm font-medium text-slate-600"
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="Applied">Applied</option>
+                    <option value="L1">L1</option>
+                    <option value="Dropped">Dropped</option>
+                    <option value="Not Eligible">Not Eligible</option>
+                    <option value="Won">Won</option>
+                    <option value="Rejected">Rejected</option>
+                    <option value="RA Lost">RA Lost</option>
+                    <option value="Disqualified">Disqualified</option>
+                    <option value="TEC Qualified">TEC Qualified</option>
+                    <option value="Closed">Closed</option>
+                  </select>
+
+                  {/* Date Range Filtering */}
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase">Deadline:</span>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => {
+                        setStartDate(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className="bg-transparent text-xs outline-none text-slate-600 font-medium"
+                      title="Start Date"
+                    />
+                    <span className="text-slate-300">-</span>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => {
+                        setEndDate(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className="bg-transparent text-xs outline-none text-slate-600 font-medium"
+                      title="End Date"
+                    />
+                  </div>
+
+                  {/* Reset Filters */}
+                  {(searchTerm || filterVertical || filterStatus || startDate || endDate) && (
+                    <button
+                      onClick={() => {
+                        setSearchTerm("");
+                        setFilterVertical("");
+                        setFilterStatus("");
+                        setStartDate("");
+                        setEndDate("");
+                        setSortField("Deadline");
+                        setSortOrder("asc");
+                        setCurrentPage(1);
+                      }}
+                      className="text-xs font-bold text-slate-400 hover:text-red-500 transition-colors whitespace-nowrap px-2"
+                    >
+                      Clear All
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex justify-between items-center w-full">
+                  <div className="text-xs text-slate-400 font-medium">
+                    Showing <span className="text-slate-600">{startIndex + 1}-{Math.min(endIndex, filteredTenders.length)}</span> of <span className="text-slate-600">{filteredTenders.length}</span> tenders
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleDownloadPDF}
+                      title="Download PDF Report"
+                      className="flex items-center justify-center p-2.5 bg-white hover:bg-slate-50 text-emerald-700 border border-slate-200 rounded-xl transition-all active:scale-95"
+                    >
+                      <FiDownload size={20} />
+                    </button>
+
+                    {/* Only show Add New Tender button for admin */}
+                    {userRole === "admin" && (
+                      <button
+                        onClick={() => setShowForm(true)}
+                        className="flex items-center justify-center gap-2 bg-gradient-to-r from-[#3a5b24] to-emerald-700 hover:from-emerald-800 hover:to-emerald-800 text-white px-6 py-2.5 rounded-xl font-medium transition-all shadow-lg shadow-emerald-900/10 active:scale-95 whitespace-nowrap"
+                      >
+                        <FiPlus /> Add New Tender
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tender Form Modal */}
+              {showForm && (
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                      <h3 className="text-xl font-bold text-slate-900">Add New Tender</h3>
+                      <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600 p-2 hover:bg-slate-100 rounded-lg transition-all">
+                        <FiX size={20} />
+                      </button>
+                    </div>
+                    <div className="p-6">
+                      <TenderForm
+                        onSave={() => {
+                          fetchTenders();
+                          fetchAlerts();
+                          setShowForm(false);
+                        }}
+                        onClose={() => setShowForm(false)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tender Details Modal */}
+              {showDetails && selectedTender && (
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                      <div>
+                        <h3 className="text-xl font-bold text-slate-900">Tender Details</h3>
+                        <p className="text-sm text-slate-500">{selectedTender.TenderNumber}</p>
+                      </div>
+                      <button onClick={() => setShowDetails(false)} className="text-slate-400 hover:text-slate-600 p-2 hover:bg-slate-100 rounded-lg transition-all">
+                        <FiX size={20} />
+                      </button>
+                    </div>
+
+                    <div className="p-6 overflow-y-auto">
+                      <div className="space-y-8 max-w-2xl mx-auto">
+                        {/* Basic Info */}
+                        <div className="border-b border-slate-100 pb-6">
+                          <h4 className="text-xs font-bold text-[#3a5b24] uppercase tracking-wider mb-4">Basic Information</h4>
+                          <div className="space-y-4">
+                            <DetailItem label="Description" value={selectedTender.Description} />
+                            <DetailItem label="Vertical" value={selectedTender.Vertical} />
+                            <DetailItem label="Organisation" value={selectedTender.OrganisationName} />
+                            <DetailItem label="Status" value={selectedTender.Status} isBadge />
+                            <DetailItem label="Deadline" value={formatDeadlineForDisplay(selectedTender.Deadline)} />
+                          </div>
+                        </div>
+
+                        {/* Financial & Technical */}
+                        <div className="border-b border-slate-100 pb-6">
+                          <h4 className="text-xs font-bold text-[#3a5b24] uppercase tracking-wider mb-4">Financial & Technical</h4>
+                          <div className="space-y-4">
+                            <DetailItem label="Bid Price" value={selectedTender.BidPrice} />
+                            <DetailItem label="EMD" value={selectedTender.EMD} />
+                            <DetailItem label="GEM Status" value={selectedTender.Gem} />
+                            <DetailItem label="Pre-bid Date" value={selectedTender.Prebid} />
+                          </div>
+                        </div>
+
+                        {/* Competition Info */}
+                        <div className="border-b border-slate-100 pb-6">
+                          <h4 className="text-xs font-bold text-[#3a5b24] uppercase tracking-wider mb-4">Competition & Bidding</h4>
+                          <div className="space-y-4 bg-slate-50 p-5 rounded-xl border border-slate-100">
+                            <DetailItem label="L1 Bid Details" value={selectedTender.L1BidDetails} />
+                            <DetailItem label="L2 Bid Details" value={selectedTender.L2BidDetails} />
+                            <DetailItem label="L3 Bid Details" value={selectedTender.L3BidDetails} />
+                          </div>
+                        </div>
+
+                        {/* Additional Info */}
+                        <div className="pb-4">
+                          <h4 className="text-xs font-bold text-[#3a5b24] uppercase tracking-wider mb-4">Additional Information</h4>
+                          <div className="space-y-4">
+                            <DetailItem label="Major Specifications" value={selectedTender.MajorSpec} />
+                            <DetailItem label="Current Status Description" value={selectedTender.CurrentStatusDescription} />
+                            <DetailItem label="Remarks" value={selectedTender.Remarks} />
+                            {selectedTender.Link && (
+                              <div className="flex flex-col gap-1 pt-2">
+                                <span className="text-xs text-slate-400 font-medium">Tender Link</span>
+                                <a
+                                  href={selectedTender.Link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm text-[#3a5b24] font-bold hover:underline flex items-center gap-1 w-fit"
+                                >
+                                  View Portal <FiExternalLink size={14} />
+                                </a>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-6 border-t border-slate-100 flex justify-end">
+                      <button
+                        onClick={() => setShowDetails(false)}
+                        className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-2 rounded-xl font-bold transition-all"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-emerald-50/50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
+                    <tr>
+                      {COLUMNS.map((col) => {
+                        const isSortable = col !== "SNo";
+                        const isActive = sortField === col;
+
+                        return (
+                          <th
+                            key={col}
+                            className={`px-6 py-4 whitespace-nowrap text-slate-900 ${isSortable ? 'cursor-pointer hover:bg-emerald-100/50 transition-colors group' : ''}`}
+                            onClick={() => {
+                              if (isSortable) {
+                                if (isActive) {
+                                  setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                                } else {
+                                  setSortField(col);
+                                  setSortOrder('asc');
+                                }
+                              }
+                            }}
+                          >
+                            <div className="flex items-center gap-1">
+                              {col === "SNo" ? "#" : col.replace(/([A-Z])/g, ' $1').trim()}
+                              {isActive ? (
+                                sortOrder === 'asc' ? <FiArrowUp className="text-emerald-700" /> : <FiArrowDown className="text-emerald-700" />
+                              ) : (
+                                isSortable && <FiArrowUp className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              )}
+                            </div>
+                          </th>
+                        );
+                      })}
+                      <th className="px-6 py-4 text-center text-slate-900">Actions</th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100">
+                    {currentTenders.length === 0 ? (
+                      <tr>
+                        <td colSpan={COLUMNS.length + 1} className="px-6 py-12 text-center text-slate-500 bg-slate-50/30">
+                          <div className="flex flex-col items-center gap-2">
+                            <FiFileText size={40} className="text-slate-300" />
+                            <p>{searchTerm ? "No tenders match your search." : "No tenders found."}</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      currentTenders.map((tender, index) => (
+                        <tr key={tender._id} className="hover:bg-slate-50/80 transition-colors group">
+                          {COLUMNS.map((col) => (
+                            <td key={col} className="px-6 py-4">
+                              {col === "SNo" ? (
+                                <span className="font-medium text-slate-400">{startIndex + index + 1}</span>
+                              ) : editingId === tender._id ? (
+                                col === "Vertical" ? (
+                                  <select
+                                    value={editData[col] || ""}
+                                    onChange={(e) => handleEditChange(e, col)}
+                                    className="w-full bg-white border border-slate-200 rounded-lg p-1 text-xs focus:ring-1 focus:ring-[#3a5b24]"
+                                  >
+                                    <option value="">Select Vertical</option>
+                                    {(() => {
+                                      const userRole = localStorage.getItem("userRole");
+                                      const allowedVerticals = JSON.parse(localStorage.getItem("allowedVerticals") || "[]");
+                                      const allVerticals = ["AR/VR", "AI", "AI/UGV", "UGV", "OTHERS", "DRONE/AI", "UAV", "RCWS/AWS"];
+
+                                      const visibleVerticals = (userRole === "admin" || allowedVerticals.includes("ALL"))
+                                        ? allVerticals
+                                        : allVerticals.filter(v => allowedVerticals.includes(v));
+
+                                      return visibleVerticals.map(v => (
+                                        <option key={v} value={v}>{v}</option>
+                                      ));
+                                    })()}
+                                  </select>
+                                ) : col === "Status" ? (
+                                  <select
+                                    value={editData[col] || ""}
+                                    onChange={(e) => handleEditChange(e, col)}
+                                    className="w-full bg-white border border-slate-200 rounded-lg p-1 text-xs focus:ring-1 focus:ring-[#3a5b24]"
+                                  >
+                                    <option value="">Select Status</option>
+                                    <option value="Active">Active</option>
+                                    <option value="Inactive">Inactive</option>
+                                    <option value="Applied">Applied</option>
+                                    <option value="L1">L1</option>
+                                    <option value="Dropped">Dropped</option>
+                                    <option value="Not Eligible">Not Eligible</option>
+                                    <option value="Won">Won</option>
+                                    <option value="Rejected">Rejected</option>
+                                    <option value="RA Lost">RA Lost</option>
+                                    <option value="Disqualified">Disqualified</option>
+                                    <option value="TEC Qualified">TEC Qualified</option>
+                                    <option value="Closed">Closed</option>
+                                  </select>
+                                ) : col === "Gem" ? (
+                                  <select
+                                    value={editData[col] || ""}
+                                    onChange={(e) => handleEditChange(e, col)}
+                                    className="w-full bg-white border border-slate-200 rounded-lg p-1 text-xs focus:ring-1 focus:ring-[#3a5b24]"
+                                  >
+                                    <option value="">Select GEM Status</option>
+                                    <option value="Catalogue Uploaded">Catalogue Uploaded</option>
+                                    <option value="Costing">Costing</option>
+                                    <option value="Submitted">Submitted</option>
+                                  </select>
+                                ) : col === "Deadline" ? (
+                                  <input
+                                    type="datetime-local"
+                                    value={editData[col] || ""}
+                                    onChange={(e) => handleEditChange(e, col)}
+                                    className="w-full bg-white border border-slate-200 rounded-lg p-1 text-xs focus:ring-1 focus:ring-[#3a5b24]"
+                                  />
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={editData[col] || ""}
+                                    onChange={(e) => handleEditChange(e, col)}
+                                    className="w-full bg-white border border-slate-200 rounded-lg p-1 text-xs focus:ring-1 focus:ring-[#3a5b24]"
+                                  />
+                                )
+                              ) : col === "Deadline" ? (
+                                <span className="text-slate-600 font-medium">{formatDeadlineForDisplay(tender[col])}</span>
+                              ) : col === "Status" ? (
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${tender[col] === 'Won' || tender[col] === 'L1' ? 'bg-green-100 text-green-700' :
+                                  tender[col] === 'Active' ? 'bg-blue-100 text-blue-700' :
+                                    tender[col] === 'Rejected' || tender[col] === 'Dropped' ? 'bg-red-100 text-red-700' :
+                                      'bg-slate-100 text-slate-700'
+                                  }`}>
+                                  {tender[col] || "-"}
+                                </span>
+                              ) : (
+                                <span className="text-slate-600 truncate max-w-[200px] block" title={tender[col]}>
+                                  {tender[col] || "-"}
+                                </span>
+                              )}
+                            </td>
+                          ))}
+
+                          <td className="px-6 py-4">
+                            {editingId === tender._id ? (
+                              <div className="flex gap-2 justify-center">
+                                <button onClick={() => saveEdit(tender._id)} className="text-[#3a5b24] font-bold hover:underline">Save</button>
+                                <button onClick={cancelEdit} className="text-slate-400 hover:text-slate-600">Cancel</button>
+                              </div>
+                            ) : (
+                              <div className="flex gap-4 justify-center">
+                                <button
+                                  onClick={() => {
+                                    setSelectedTender(tender);
+                                    setShowDetails(true);
+                                  }}
+                                  className="text-emerald-600 hover:text-emerald-700 p-1 hover:bg-emerald-50 rounded-lg transition-all"
+                                  title="View Details"
+                                >
+                                  <FiInfo size={16} />
+                                </button>
+                                
+                                {/* Only show edit button for admin users */}
+                                {userRole === "admin" && (
+                                  <button 
+                                    onClick={() => startEdit(tender)} 
+                                    className="text-blue-500 hover:text-blue-700 p-1 hover:bg-blue-50 rounded-lg transition-all" 
+                                    title="Edit"
+                                  >
+                                    <FiEdit size={16} />
+                                  </button>
+                                )}
+                                
+                                {/* Only show delete button for admin users */}
+                                {userRole === "admin" && (
+                                  <button 
+                                    onClick={() => handleDelete(tender._id)} 
+                                    className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg transition-all" 
+                                    title="Delete"
+                                  >
+                                    <FiTrash2 size={16} />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination & Summary */}
+              <div className="p-6 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-50/30">
+                <div className="text-sm text-slate-500 font-medium">
+                  Showing <span className="text-slate-900">{startIndex + 1}</span> to <span className="text-slate-900">{Math.min(endIndex, filteredTenders.length)}</span> of <span className="text-slate-900">{filteredTenders.length}</span> results
+                </div>
+
+                {filteredTenders.length > ITEMS_PER_PAGE && (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => goToPage(currentPage - 1)}
+                      disabled={!hasPreviousPage}
+                      className={`flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition-all ${hasPreviousPage ? "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50" : "bg-slate-50 text-slate-300 cursor-not-allowed"
+                        }`}
+                    >
+                      <FiChevronLeft /> Previous
+                    </button>
+
+                    <div className="flex gap-1">
+                      {getPageNumbers().map((pageNum) => (
+                        <button
+                          key={pageNum}
+                          onClick={() => goToPage(pageNum)}
+                          className={`w-10 h-10 rounded-xl text-sm font-bold transition-all ${currentPage === pageNum ? "bg-[#3a5b24] text-white shadow-lg shadow-emerald-900/20" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                            }`}
+                        >
+                          {pageNum}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={() => goToPage(currentPage + 1)}
+                      disabled={!hasNextPage}
+                      className={`flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition-all ${hasNextPage ? "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50" : "bg-slate-50 text-slate-300 cursor-not-allowed"
+                        }`}
+                    >
+                      Next <FiChevronRight />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Alerts Tab */}
+        {activeTab === "alerts" && (
+          <div className="space-y-6">
+            {alerts.length === 0 ? (
+              <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-200">
+                <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <FiBell className="w-10 h-10 text-slate-300" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">Workspace all clear!</h3>
+                <p className="text-slate-500">No upcoming deadlines or alerts at the moment.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {alerts.map((alert) => {
+                  const daysUntilDeadline = getDaysUntilDeadline(alert.Deadline);
+                  const severity = getAlertSeverity(daysUntilDeadline);
+
+                  return (
+                    <div
+                      key={alert._id}
+                      className={`group relative bg-white rounded-2xl p-6 shadow-sm border transition-all hover:shadow-md ${severity === "high" ? "border-red-100 bg-red-50/10" :
+                        severity === "medium" ? "border-orange-100 bg-orange-50/10" :
+                          "border-blue-100 bg-blue-50/10"
+                        }`}
+                    >
+                      <div className="flex justify-between items-start mb-4">
+                        <div className={`p-3 rounded-xl ${severity === "high" ? "bg-red-500 text-white" :
+                          severity === "medium" ? "bg-orange-500 text-white" :
+                            "bg-blue-500 text-white shadow-lg"
+                          }`}>
+                          <FiBell size={20} />
+                        </div>
+                        <div className="flex gap-2">
+
+                          <button
+                            onClick={() => handleAcknowledgeAlert(alert._id)}
+                            className="p-2 bg-emerald-50 hover:bg-white rounded-lg text-emerald-600 hover:text-emerald-800 transition-all shadow-sm border border-emerald-100"
+                            title="Dismiss Alert"
+                          >
+                            <FiCheckCircle size={18} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="mb-4">
+                        <h3 className="text-lg font-bold text-slate-900 mb-1">{alert.TenderNumber}</h3>
+                        <p className="text-sm text-slate-500 line-clamp-2 mb-3">{alert.Description || "No description provided."}</p>
+
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase ${severity === "high" ? "bg-red-100 text-red-700" :
+                            severity === "medium" ? "bg-orange-100 text-orange-700" :
+                              "bg-blue-100 text-blue-700"
+                            }`}>
+                            {daysUntilDeadline === 0 ? "Due Today" : `${daysUntilDeadline} Days Left`}
+                          </span>
+                          <span className="text-xs text-slate-400 font-medium">
+                            {formatDeadlineForDisplay(alert.Deadline)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 border-t border-slate-100 pt-4 mb-6">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-400">Vertical</span>
+                          <span className="text-slate-700 font-bold">{alert.Vertical || "-"}</span>
+                        </div>
+
+                      </div>
+
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => {
+                            setActiveTab("tenders");
+                            setSelectedTender(alert);
+                            setShowDetails(true);
+                          }}
+                          className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl text-xs font-bold transition-all"
+                        >
+                          Details
+                        </button>
+                        <button
+                          onClick={() => handleAcknowledgeAlert(alert._id)}
+                          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all text-white ${severity === 'high' ? 'bg-red-500 hover:bg-red-600' : 'bg-[#3a5b24] hover:bg-emerald-800'
+                            }`}
+                        >
+                          <FiCheckCircle /> Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Approval Requests Tab */}
+        {activeTab === "approvals" && (
+          <div className="space-y-6">
+            {pendingUsers.length === 0 ? (
+              <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-200">
+                <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <FiCheckCircle className="w-10 h-10 text-slate-300" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">No pending approvals</h3>
+                <p className="text-slate-500">All user registration requests have been processed.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="p-6 border-b border-slate-100 bg-slate-50/50">
+                  <h3 className="text-lg font-bold text-slate-900">Pending Approvals</h3>
+                  <p className="text-sm text-slate-500">Review and approve new user registrations</p>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
+                      <tr>
+                        <th className="px-6 py-4">User Email</th>
+                        <th className="px-6 py-4">Assign Verticals</th>
+                        <th className="px-6 py-4 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {pendingUsers.map((user) => (
+                        <tr key={user._id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-4 align-top">
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-slate-700">{user.email}</span>
+                              <span className="text-[10px] text-slate-400 mt-1 uppercase">Role: {user.role}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-2 max-w-2xl">
+                              {['ALL', 'AR/VR', 'AI', 'AI/UGV', 'UGV', 'OTHERS', 'DRONE/AI', 'UAV', 'RCWS/AWS'].map((vertical) => {
+                                const isSelected = approvingUsers[user._id]?.selectedVerticals.includes(vertical);
+                                return (
+                                  <button
+                                    key={vertical}
+                                    onClick={() => toggleVertical(user._id, vertical)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${isSelected
+                                      ? "bg-[#3a5b24] text-white border-[#3a5b24] shadow-sm"
+                                      : "bg-white text-slate-600 border-slate-200 hover:border-emerald-200 hover:bg-emerald-50"
+                                      }`}
+                                  >
+                                    {vertical}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-center align-top">
+                            <button
+                              onClick={() => handleApproveUser(user._id)}
+                              className="bg-gradient-to-r from-[#3a5b24] to-emerald-700 hover:from-emerald-800 hover:to-emerald-800 text-white px-6 py-2 rounded-xl font-bold transition-all shadow-md active:scale-95 whitespace-nowrap"
+                            >
+                              Approve User
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+};
+
+export default Dashboard;
