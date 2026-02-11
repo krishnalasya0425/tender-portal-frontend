@@ -14,7 +14,7 @@ function App() {
     <Router>
       <div className="min-h-screen bg-black-100">
         <Routes>
-          {/* Landing page: Register */}
+          {/* Landing page : Register */}
           <Route path="/" element={<Register />} />
 
           {/* Login page */}

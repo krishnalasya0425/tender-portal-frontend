@@ -2,9 +2,11 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import TenderEditForm from "../components/TenderEditForm";
 import TenderForm from "./TenderForm";
 import Sidebar from "../components/Sidebar";
 import StatCard from "../components/StatCard";
+
 import {
   FiEdit,
   FiTrash2,
@@ -33,7 +35,9 @@ const COLUMNS = [
   "Description",
   "Vertical",
   "Deadline",
-  "Status"
+  "Status",
+  "BidPrice",
+  "EMD"
 ];
 
 const ITEMS_PER_PAGE = 20;
@@ -60,8 +64,9 @@ const Dashboard = () => {
   const [showForm, setShowForm] = useState(false);
   const [tenders, setTenders] = useState([]);
   const [alerts, setAlerts] = useState([]);
-  const [editingId, setEditingId] = useState(null);
-  const [editData, setEditData] = useState({});
+
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [editingTender, setEditingTender] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterVertical, setFilterVertical] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -88,6 +93,44 @@ const Dashboard = () => {
   const userRole = localStorage.getItem("userRole");
   const allowedVerticals = JSON.parse(localStorage.getItem("allowedVerticals") || "[]");
   const userEmail = localStorage.getItem("userEmail") || "";
+
+  useEffect(() => {
+    fetchTenders();
+    fetchAlerts();
+
+    // Clean up old acknowledged alerts on component mount
+    const cleanupOldAlerts = () => {
+      const acknowledgedAlerts = JSON.parse(localStorage.getItem('acknowledgedAlerts') || '{}');
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now);
+      thirtyDaysAgo.setDate(now.getDate() - 30);
+
+      const cleanedAlerts = {};
+
+      Object.entries(acknowledgedAlerts).forEach(([tenderId, data]) => {
+        // If data is just a boolean (old format), keep it
+        if (typeof data === 'boolean' && data === true) {
+          cleanedAlerts[tenderId] = true;
+        }
+        // If data is an object with timestamp, check if it's within 30 days
+        else if (data.acknowledgedAt) {
+          const acknowledgedDate = new Date(data.acknowledgedAt);
+          if (acknowledgedDate > thirtyDaysAgo) {
+            cleanedAlerts[tenderId] = data;
+          }
+        }
+      });
+
+      localStorage.setItem('acknowledgedAlerts', JSON.stringify(cleanedAlerts));
+    };
+
+    cleanupOldAlerts();
+
+    // Set initial vertical filter for non-admin users with restricted access
+    if (userRole !== "admin" && !allowedVerticals.includes("ALL") && allowedVerticals.length === 1) {
+      setFilterVertical(allowedVerticals[0]);
+    }
+  }, []);
 
   // Function to format deadline for display
   const formatDeadlineForDisplay = (deadline) => {
@@ -140,7 +183,19 @@ const Dashboard = () => {
       const res = await axios.get("http://localhost:5000/api/tenders", {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setTenders(res.data);
+
+      // Remove duplicate tenders by ID
+      const uniqueTenders = [];
+      const seenIds = new Set();
+
+      res.data.forEach(tender => {
+        if (!seenIds.has(tender._id)) {
+          seenIds.add(tender._id);
+          uniqueTenders.push(tender);
+        }
+      });
+
+      setTenders(uniqueTenders);
       setCurrentPage(1);
     } catch (err) {
       console.error(err);
@@ -148,15 +203,62 @@ const Dashboard = () => {
   };
 
   // Fetch alerts (tenders due in next 7 days)
+  // Fetch alerts (tenders due in next 7 days)
   const fetchAlerts = async () => {
     try {
       const tendersRes = await axios.get("http://localhost:5000/api/tenders", {
         headers: { Authorization: `Bearer ${token}` },
       });
 
+      // Debug: Check for duplicate tender IDs
+      const tenderIds = tendersRes.data.map(t => t._id);
+      const uniqueIds = [...new Set(tenderIds)];
+
+      if (tenderIds.length !== uniqueIds.length) {
+        console.warn('Warning: Duplicate tender IDs found in API response');
+        // Remove duplicates by creating a map of unique tenders
+        const uniqueTenders = [];
+        const seenIds = new Set();
+
+        tendersRes.data.forEach(tender => {
+          if (!seenIds.has(tender._id)) {
+            seenIds.add(tender._id);
+            uniqueTenders.push(tender);
+          }
+        });
+
+        // Use unique tenders
+        tendersRes.data = uniqueTenders;
+      }
+
       const now = new Date();
       const sevenDaysLater = new Date(now);
       sevenDaysLater.setDate(now.getDate() + 7);
+
+      // Reset acknowledgedAlerts for past tenders
+      const acknowledgedAlerts = JSON.parse(localStorage.getItem('acknowledgedAlerts') || '{}');
+      const updatedAcknowledgedAlerts = { ...acknowledgedAlerts };
+
+      // Remove expired acknowledgments (tenders older than 7 days)
+      Object.keys(updatedAcknowledgedAlerts).forEach(tenderId => {
+        const tender = tendersRes.data.find(t => t._id === tenderId);
+        if (tender && tender.Deadline) {
+          const deadlineDate = new Date(tender.Deadline);
+          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const tenderDeadlineDate = new Date(deadlineDate.getFullYear(), deadlineDate.getMonth(), deadlineDate.getDate());
+
+          // If tender deadline is more than 7 days in the past, remove from acknowledgments
+          const diffTime = tenderDeadlineDate - today;
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          if (diffDays < -7) {
+            delete updatedAcknowledgedAlerts[tenderId];
+          }
+        }
+      });
+
+      // Save cleaned up acknowledgments
+      localStorage.setItem('acknowledgedAlerts', JSON.stringify(updatedAcknowledgedAlerts));
 
       const upcomingTenders = tendersRes.data.filter(tender => {
         if (!tender.Deadline) return false;
@@ -165,13 +267,17 @@ const Dashboard = () => {
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const deadlineDate = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
 
-        // Get acknowledged alerts from localStorage
-        const acknowledgedAlerts = JSON.parse(localStorage.getItem('acknowledgedAlerts') || '{}');
+        // Check if tender is upcoming (within 7 days from today)
+        const diffTime = deadlineDate - today;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-        // Check if tender is upcoming (within 7 days) and not acknowledged
-        return deadlineDate >= today &&
-          deadlineDate <= sevenDaysLater &&
-          !acknowledgedAlerts[tender._id];
+        // Tender should be within next 7 days (0 to 7 days)
+        const isUpcoming = diffDays >= 0 && diffDays <= 7;
+
+        // Check if not acknowledged
+        const isAcknowledged = updatedAcknowledgedAlerts[tender._id];
+
+        return isUpcoming && !isAcknowledged;
       });
 
       setAlerts(upcomingTenders);
@@ -245,57 +351,52 @@ const Dashboard = () => {
     });
   };
 
-  const handleDownloadPDF = () => {
-    const doc = new jsPDF();
+const handleDownloadPDF = () => {
+  const doc = new jsPDF();
 
-    // Add Header
-    doc.setFontSize(18);
-    doc.text("Tender Portal - Report", 14, 22);
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`Generated on: ${new Date().toLocaleDateString('en-IN')}`, 14, 30);
+  // Add Header
+  doc.setFontSize(18);
+  doc.text("Tender Portal - Report", 14, 22);
+  doc.setFontSize(10);
+  doc.setTextColor(100);
+  doc.text(`Generated on: ${new Date().toLocaleDateString('en-IN')}`, 14, 30);
 
-    // Define columns
-    const columns = [
-      { header: "#", dataKey: "index" },
-      { header: "Tender Number", dataKey: "TenderNumber" },
-      { header: "Description", dataKey: "Description" },
-      { header: "Vertical", dataKey: "Vertical" },
-      { header: "Deadline", dataKey: "Deadline" },
-      { header: "Status", dataKey: "Status" }
-    ];
+  // Define columns - ADD BID PRICE AND EMD
+  const columns = [
+    { header: "#", dataKey: "index" },
+    { header: "Tender Number", dataKey: "TenderNumber" },
+    { header: "Description", dataKey: "Description" },
+    { header: "Vertical", dataKey: "Vertical" },
+    { header: "Deadline", dataKey: "Deadline" },
+    { header: "Status", dataKey: "Status" },
+    { header: "Bid Price", dataKey: "BidPrice" },
+    { header: "EMD", dataKey: "EMD" }
+  ];
 
-    // Prepare data
-    const rows = filteredTenders.map((tender, idx) => ({
-      index: idx + 1,
-      TenderNumber: tender.TenderNumber || "-",
-      Description: tender.Description || "-",
-      Vertical: tender.Vertical || "-",
-      Deadline: formatDeadlineForDisplay(tender.Deadline) || "-",
-      Status: tender.Status || "-"
-    }));
+  // Prepare data
+  const rows = filteredTenders.map((tender, idx) => ({
+    index: idx + 1,
+    TenderNumber: tender.TenderNumber || "-",
+    Description: tender.Description || "-",
+    Vertical: tender.Vertical || "-",
+    Deadline: formatDeadlineForDisplay(tender.Deadline) || "-",
+    Status: tender.Status || "-",
+    BidPrice: tender.BidPrice || "-",
+    EMD: tender.EMD || "-"
+  }));
 
-    autoTable(doc, {
-      startY: 35,
-      columns: columns,
-      body: rows,
-      headStyles: { fillColor: [58, 91, 36] }, // Custom green color matching the UI
-      styles: { fontSize: 8 },
-      alternateRowStyles: { fillColor: [245, 250, 245] }
-    });
+  autoTable(doc, {
+    startY: 35,
+    columns: columns,
+    body: rows,
+    headStyles: { fillColor: [58, 91, 36] }, // Custom green color matching the UI
+    styles: { fontSize: 8 },
+    alternateRowStyles: { fillColor: [245, 250, 245] }
+  });
 
-    doc.save(`Tender_Report_${new Date().toISOString().split('T')[0]}.pdf`);
-  };
+  doc.save(`Tender_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+};
 
-  useEffect(() => {
-    fetchTenders();
-    fetchAlerts();
-
-    // Set initial vertical filter for non-admin users with restricted access
-    if (userRole !== "admin" && !allowedVerticals.includes("ALL") && allowedVerticals.length === 1) {
-      setFilterVertical(allowedVerticals[0]);
-    }
-  }, []);
 
   // Send reminder email for specific tender
   const handleSendReminder = async (tenderId, tenderNumber) => {
@@ -322,10 +423,17 @@ const Dashboard = () => {
     }
   };
 
+
   // Acknowledge alert
   const handleAcknowledgeAlert = (tenderId) => {
     const acknowledgedAlerts = JSON.parse(localStorage.getItem('acknowledgedAlerts') || '{}');
-    acknowledgedAlerts[tenderId] = true;
+
+    // Add with timestamp to track when it was acknowledged
+    acknowledgedAlerts[tenderId] = {
+      acknowledgedAt: new Date().toISOString(),
+      acknowledged: true
+    };
+
     localStorage.setItem('acknowledgedAlerts', JSON.stringify(acknowledgedAlerts));
 
     // Remove from alerts state
@@ -333,18 +441,15 @@ const Dashboard = () => {
   };
 
   const startEdit = (tender) => {
-    setEditingId(tender._id);
-    // Format deadline for datetime-local input
-    const formattedData = { ...tender };
-    if (tender.Deadline) {
-      formattedData.Deadline = formatDeadlineForInput(tender.Deadline);
-    }
-    setEditData(formattedData);
+    setEditingTender(tender);
+    setShowEditForm(true);
   };
 
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditData({});
+
+  // Close edit modal
+  const closeEditForm = () => {
+    setShowEditForm(false);
+    setEditingTender(null);
   };
 
   const formatDeadlineForInput = (deadline) => {
@@ -359,42 +464,6 @@ const Dashboard = () => {
     return localDate.toISOString().slice(0, 16);
   };
 
-  const handleEditChange = (e, key) => {
-    setEditData({ ...editData, [key]: e.target.value });
-  };
-
-  const saveEdit = async (id) => {
-    try {
-      // Prepare the data for update
-      const updateData = { ...editData };
-
-      // Handle deadline conversion from datetime-local to ISO string
-      if (updateData.Deadline) {
-        const date = new Date(updateData.Deadline);
-        // Convert to UTC ISO string
-        updateData.Deadline = date.toISOString();
-      }
-
-      // Remove system fields from update data
-      delete updateData._id;
-      delete updateData.__v;
-      delete updateData.createdAt;
-      delete updateData.updatedAt;
-      delete updateData.createdBy;
-
-      await axios.put(
-        `http://localhost:5000/api/tenders/${id}`,
-        updateData,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setEditingId(null);
-      fetchTenders();
-      fetchAlerts();
-    } catch (err) {
-      console.error("Update error:", err);
-      alert(`Failed to update tender: ${err.response?.data?.message || err.message}`);
-    }
-  };
 
   const handleDelete = async (id) => {
     if (!window.confirm("Are you sure you want to delete this tender?")) return;
@@ -731,16 +800,35 @@ const Dashboard = () => {
                 </div>
               </div>
 
+              {showEditForm && editingTender && (
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                      <h3 className="text-xl font-bold text-slate-900">Edit Tender</h3>
+                      <button onClick={closeEditForm} className="text-slate-400 hover:text-slate-600 p-2 hover:bg-slate-100 rounded-lg transition-all">
+                        <FiX size={20} />
+                      </button>
+                    </div>
+                    <div className="p-6">
+                      <TenderEditForm
+                        tender={editingTender}
+                        onSave={() => {
+                          fetchTenders();
+                          fetchAlerts();
+                          closeEditForm();
+                        }}
+                        onClose={closeEditForm}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Tender Form Modal */}
               {showForm && (
                 <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                   <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                    <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                      <h3 className="text-xl font-bold text-slate-900">Add New Tender</h3>
-                      <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600 p-2 hover:bg-slate-100 rounded-lg transition-all">
-                        <FiX size={20} />
-                      </button>
-                    </div>
+
                     <div className="p-6">
                       <TenderForm
                         onSave={() => {
@@ -842,197 +930,184 @@ const Dashboard = () => {
               )}
 
               {/* Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-emerald-50/50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
-                    <tr>
-                      {COLUMNS.map((col) => {
-                        const isSortable = col !== "SNo";
-                        const isActive = sortField === col;
+<div className="overflow-x-auto">
+  <table className="w-full text-sm text-left">
+    <thead className="bg-emerald-50/50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
+      <tr>
+        {COLUMNS.map((col) => {
+          const isSortable = col !== "SNo";
+          const isActive = sortField === col;
+          
+          // Define column width classes based on column type
+          const getColumnWidth = () => {
+            switch(col) {
+              case "SNo":
+                return "w-12"; // Serial number - narrower
+              case "TenderNumber":
+                return "w-44"; // Tender number - medium
+              case "Description":
+                return "min-w-[280px] max-w-[380px]"; // Description - slightly narrower
+              case "Vertical":
+                return "w-24"; // Vertical - narrower
+              case "Deadline":
+                return "min-w-[160px] max-w-[200px]"; // Deadline - wider
+              case "Status":
+      return "min-w-[100px] max-w-[120px]"; 
+              case "BidPrice":
+                return "w-28"; // Bid Price - narrower
+              case "EMD":
+                return "w-24"; // EMD - narrower
+              default:
+                return "";
+            }
+          };
 
-                        return (
-                          <th
-                            key={col}
-                            className={`px-6 py-4 whitespace-nowrap text-slate-900 ${isSortable ? 'cursor-pointer hover:bg-emerald-100/50 transition-colors group' : ''}`}
-                            onClick={() => {
-                              if (isSortable) {
-                                if (isActive) {
-                                  setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-                                } else {
-                                  setSortField(col);
-                                  setSortOrder('asc');
-                                }
-                              }
-                            }}
-                          >
-                            <div className="flex items-center gap-1">
-                              {col === "SNo" ? "#" : col.replace(/([A-Z])/g, ' $1').trim()}
-                              {isActive ? (
-                                sortOrder === 'asc' ? <FiArrowUp className="text-emerald-700" /> : <FiArrowDown className="text-emerald-700" />
-                              ) : (
-                                isSortable && <FiArrowUp className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-                              )}
-                            </div>
-                          </th>
-                        );
-                      })}
-                      <th className="px-6 py-4 text-center text-slate-900">Actions</th>
-                    </tr>
-                  </thead>
-
-                  <tbody className="divide-y divide-slate-100">
-                    {currentTenders.length === 0 ? (
-                      <tr>
-                        <td colSpan={COLUMNS.length + 1} className="px-6 py-12 text-center text-slate-500 bg-slate-50/30">
-                          <div className="flex flex-col items-center gap-2">
-                            <FiFileText size={40} className="text-slate-300" />
-                            <p>{searchTerm ? "No tenders match your search." : "No tenders found."}</p>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      currentTenders.map((tender, index) => (
-                        <tr key={tender._id} className="hover:bg-slate-50/80 transition-colors group">
-                          {COLUMNS.map((col) => (
-                            <td key={col} className="px-6 py-4">
-                              {col === "SNo" ? (
-                                <span className="font-medium text-slate-400">{startIndex + index + 1}</span>
-                              ) : editingId === tender._id ? (
-                                col === "Vertical" ? (
-                                  <select
-                                    value={editData[col] || ""}
-                                    onChange={(e) => handleEditChange(e, col)}
-                                    className="w-full bg-white border border-slate-200 rounded-lg p-1 text-xs focus:ring-1 focus:ring-[#3a5b24]"
-                                  >
-                                    <option value="">Select Vertical</option>
-                                    {(() => {
-                                      const userRole = localStorage.getItem("userRole");
-                                      const allowedVerticals = JSON.parse(localStorage.getItem("allowedVerticals") || "[]");
-                                      const allVerticals = ["AR/VR", "AI", "AI/UGV", "UGV", "OTHERS", "DRONE/AI", "UAV", "RCWS/AWS"];
-
-                                      const visibleVerticals = (userRole === "admin" || allowedVerticals.includes("ALL"))
-                                        ? allVerticals
-                                        : allVerticals.filter(v => allowedVerticals.includes(v));
-
-                                      return visibleVerticals.map(v => (
-                                        <option key={v} value={v}>{v}</option>
-                                      ));
-                                    })()}
-                                  </select>
-                                ) : col === "Status" ? (
-                                  <select
-                                    value={editData[col] || ""}
-                                    onChange={(e) => handleEditChange(e, col)}
-                                    className="w-full bg-white border border-slate-200 rounded-lg p-1 text-xs focus:ring-1 focus:ring-[#3a5b24]"
-                                  >
-                                    <option value="">Select Status</option>
-                                    <option value="Active">Active</option>
-                                    <option value="Inactive">Inactive</option>
-                                    <option value="Applied">Applied</option>
-                                    <option value="L1">L1</option>
-                                    <option value="Dropped">Dropped</option>
-                                    <option value="Not Eligible">Not Eligible</option>
-                                    <option value="Won">Won</option>
-                                    <option value="Rejected">Rejected</option>
-                                    <option value="RA Lost">RA Lost</option>
-                                    <option value="Disqualified">Disqualified</option>
-                                    <option value="TEC Qualified">TEC Qualified</option>
-                                    <option value="Closed">Closed</option>
-                                  </select>
-                                ) : col === "Gem" ? (
-                                  <select
-                                    value={editData[col] || ""}
-                                    onChange={(e) => handleEditChange(e, col)}
-                                    className="w-full bg-white border border-slate-200 rounded-lg p-1 text-xs focus:ring-1 focus:ring-[#3a5b24]"
-                                  >
-                                    <option value="">Select GEM Status</option>
-                                    <option value="Catalogue Uploaded">Catalogue Uploaded</option>
-                                    <option value="Costing">Costing</option>
-                                    <option value="Submitted">Submitted</option>
-                                  </select>
-                                ) : col === "Deadline" ? (
-                                  <input
-                                    type="datetime-local"
-                                    value={editData[col] || ""}
-                                    onChange={(e) => handleEditChange(e, col)}
-                                    className="w-full bg-white border border-slate-200 rounded-lg p-1 text-xs focus:ring-1 focus:ring-[#3a5b24]"
-                                  />
-                                ) : (
-                                  <input
-                                    type="text"
-                                    value={editData[col] || ""}
-                                    onChange={(e) => handleEditChange(e, col)}
-                                    className="w-full bg-white border border-slate-200 rounded-lg p-1 text-xs focus:ring-1 focus:ring-[#3a5b24]"
-                                  />
-                                )
-                              ) : col === "Deadline" ? (
-                                <span className="text-slate-600 font-medium">{formatDeadlineForDisplay(tender[col])}</span>
-                              ) : col === "Status" ? (
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${tender[col] === 'Won' || tender[col] === 'L1' ? 'bg-green-100 text-green-700' :
-                                  tender[col] === 'Active' ? 'bg-blue-100 text-blue-700' :
-                                    tender[col] === 'Rejected' || tender[col] === 'Dropped' ? 'bg-red-100 text-red-700' :
-                                      'bg-slate-100 text-slate-700'
-                                  }`}>
-                                  {tender[col] || "-"}
-                                </span>
-                              ) : (
-                                <span className="text-slate-600 truncate max-w-[200px] block" title={tender[col]}>
-                                  {tender[col] || "-"}
-                                </span>
-                              )}
-                            </td>
-                          ))}
-
-                          <td className="px-6 py-4">
-                            {editingId === tender._id ? (
-                              <div className="flex gap-2 justify-center">
-                                <button onClick={() => saveEdit(tender._id)} className="text-[#3a5b24] font-bold hover:underline">Save</button>
-                                <button onClick={cancelEdit} className="text-slate-400 hover:text-slate-600">Cancel</button>
-                              </div>
-                            ) : (
-                              <div className="flex gap-4 justify-center">
-                                <button
-                                  onClick={() => {
-                                    setSelectedTender(tender);
-                                    setShowDetails(true);
-                                  }}
-                                  className="text-emerald-600 hover:text-emerald-700 p-1 hover:bg-emerald-50 rounded-lg transition-all"
-                                  title="View Details"
-                                >
-                                  <FiInfo size={16} />
-                                </button>
-                                
-                                {/* Only show edit button for admin users */}
-                                {userRole === "admin" && (
-                                  <button 
-                                    onClick={() => startEdit(tender)} 
-                                    className="text-blue-500 hover:text-blue-700 p-1 hover:bg-blue-50 rounded-lg transition-all" 
-                                    title="Edit"
-                                  >
-                                    <FiEdit size={16} />
-                                  </button>
-                                )}
-                                
-                                {/* Only show delete button for admin users */}
-                                {userRole === "admin" && (
-                                  <button 
-                                    onClick={() => handleDelete(tender._id)} 
-                                    className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg transition-all" 
-                                    title="Delete"
-                                  >
-                                    <FiTrash2 size={16} />
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+          return (
+            <th
+              key={col}
+              className={`px-3 py-2 whitespace-nowrap text-slate-900 ${getColumnWidth()} ${isSortable ? 'cursor-pointer hover:bg-emerald-100/50 transition-colors group' : ''}`}
+              onClick={() => {
+                if (isSortable) {
+                  if (isActive) {
+                    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                  } else {
+                    setSortField(col);
+                    setSortOrder('asc');
+                  }
+                }
+              }}
+            >
+              <div className="flex items-center gap-1">
+                {col === "SNo" ? "#" : 
+                 col === "BidPrice" ? "Bid Price" :
+                 col === "EMD" ? "EMD" :
+                 col.replace(/([A-Z])/g, ' $1').trim()}
+                {isActive ? (
+                  sortOrder === 'asc' ? <FiArrowUp className="text-emerald-700" size={12} /> : <FiArrowDown className="text-emerald-700" size={12} />
+                ) : (
+                  isSortable && <FiArrowUp className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" size={12} />
+                )}
               </div>
+            </th>
+          );
+        })}
+        <th className="px-3 py-2 text-center text-slate-900 w-28">Actions</th>
+      </tr>
+    </thead>
 
+    <tbody className="divide-y divide-slate-100">
+      {currentTenders.length === 0 ? (
+        <tr>
+          <td colSpan={COLUMNS.length + 1} className="px-6 py-10 text-center text-slate-500 bg-slate-50/30">
+            <div className="flex flex-col items-center gap-2">
+              <FiFileText size={36} className="text-slate-300" />
+              <p className="text-lg">{searchTerm ? "No tenders match your search." : "No tenders found."}</p>
+            </div>
+          </td>
+        </tr>
+      ) : (
+        currentTenders.map((tender, index) => (
+          <tr key={tender._id} className="hover:bg-slate-50/80 transition-colors group">
+            {COLUMNS.map((col) => {
+              // Define cell width classes to match header
+              const getCellWidth = () => {
+                switch(col) {
+                  case "SNo":
+                    return "w-12";
+                  case "TenderNumber":
+                    return "w-44";
+                  case "Description":
+                    return "min-w-[280px] max-w-[380px]";
+                  case "Vertical":
+                    return "w-24";
+                  case "Deadline":
+                    return "min-w-[160px] max-w-[200px]";
+                  case "Status":
+                    return "w-24";
+                  case "BidPrice":
+                    return "w-28";
+                  case "EMD":
+                    return "w-24";
+                  default:
+                    return "";
+                }
+              };
+
+              return (
+                <td key={col} className={`px-3 py-2 ${getCellWidth()} align-middle`}>
+                  {col === "SNo" ? (
+                    <span className="font-medium text-slate-400 text-xs">{startIndex + index + 1}</span>
+                  ) : col === "Deadline" ? (
+                    <span className="text-slate-600 font-medium text-xs block truncate" title={formatDeadlineForDisplay(tender[col])}>
+                      {formatDeadlineForDisplay(tender[col])}
+                    </span>
+                  ) : col === "Status" ? (
+                    <span className={`px-2 py-1 rounded-full text-[9px] font-bold uppercase ${tender[col] === 'Won' || tender[col] === 'L1' ? 'bg-green-100 text-green-700' :
+                      tender[col] === 'Active' ? 'bg-blue-100 text-blue-700' :
+                        tender[col] === 'Rejected' || tender[col] === 'Dropped' ? 'bg-red-100 text-red-700' :
+                          'bg-slate-100 text-slate-700'
+                      }`}>
+                      {tender[col] || "-"}
+                    </span>
+                  ) : col === "BidPrice" || col === "EMD" ? (
+                    <span className="text-slate-600 font-medium text-xs block truncate" title={tender[col]}>
+                      {tender[col] ? `₹${tender[col]}` : "-"}
+                    </span>
+                  ) : col === "Description" ? (
+                    <span className="text-slate-600 text-xs block truncate" title={tender[col]}>
+                      {tender[col] || "-"}
+                    </span>
+                  ) : (
+                    <span className="text-slate-600 text-xs block truncate" title={tender[col]}>
+                      {tender[col] || "-"}
+                    </span>
+                  )}
+                </td>
+              );
+            })}
+
+            <td className="px-3 py-2 w-28 align-middle">
+              <div className="flex gap-2 justify-center">
+                <button
+                  onClick={() => {
+                    setSelectedTender(tender);
+                    setShowDetails(true);
+                  }}
+                  className="text-emerald-600 hover:text-emerald-700 p-1 hover:bg-emerald-50 rounded-lg transition-all"
+                  title="View Details"
+                >
+                  <FiInfo size={14} />
+                </button>
+
+                {/* Only show edit button for admin users */}
+                {userRole === "admin" && (
+                  <button
+                    onClick={() => startEdit(tender)}
+                    className="text-blue-500 hover:text-blue-700 p-1 hover:bg-blue-50 rounded-lg transition-all"
+                    title="Edit"
+                  >
+                    <FiEdit size={14} />
+                  </button>
+                )}
+
+                {/* Only show delete button for admin users */}
+                {userRole === "admin" && (
+                  <button
+                    onClick={() => handleDelete(tender._id)}
+                    className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg transition-all"
+                    title="Delete"
+                  >
+                    <FiTrash2 size={14} />
+                  </button>
+                )}
+              </div>
+            </td>
+          </tr>
+        ))
+      )}
+    </tbody>
+  </table>
+</div>
               {/* Pagination & Summary */}
               <div className="p-6 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-50/30">
                 <div className="text-sm text-slate-500 font-medium">
