@@ -887,11 +887,7 @@ const Dashboard = () => {
 
                 </div>
 
-                <div className="flex justify-between items-center w-full">
-                  <div className="text-xs text-slate-400 font-medium">
-                    Showing <span className="text-slate-600">{startIndex + 1}-{Math.min(endIndex, filteredTenders.length)}</span> of <span className="text-slate-600">{filteredTenders.length}</span> tenders
-                  </div>
-                </div>
+                
               </div>
 
               {showEditForm && editingTender && (
