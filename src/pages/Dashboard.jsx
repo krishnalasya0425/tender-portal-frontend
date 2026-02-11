@@ -857,14 +857,15 @@ const Dashboard = () => {
                   </button>
 
                   {/* Add New Tender Button - Only for admin */}
-                  {userRole === "admin" && (
-                    <button
-                      onClick={() => setShowForm(true)}
-                      className="flex items-center justify-center gap-2 bg-gradient-to-r from-[#3a5b24] to-emerald-700 hover:from-emerald-800 hover:to-emerald-800 text-white px-6 py-2.5 rounded-xl font-medium transition-all shadow-lg shadow-emerald-900/10 active:scale-95 whitespace-nowrap"
-                    >
-                      <FiPlus /> Add New Tender
-                    </button>
-                  )}
+                 {userRole === "admin" && (
+  <button
+    onClick={() => setShowForm(true)}
+    className="flex items-center justify-center gap-2 bg-gradient-to-r from-[#3a5b24] to-emerald-700 hover:from-emerald-800 hover:to-emerald-800 text-white px-3 py-2 rounded-lg text-sm font-medium transition-all shadow-md active:scale-95"
+  >
+    <FiPlus size={14} /> Add Tender
+  </button>
+)}
+
 
                   {/* Reset Filters */}
                   {(searchTerm || filterVertical || filterStatus || startDate || endDate) && (
@@ -886,11 +887,7 @@ const Dashboard = () => {
                   )}
                 </div>
 
-                <div className="flex justify-between items-center w-full">
-                  <div className="text-xs text-slate-400 font-medium">
-                    Showing <span className="text-slate-600">{startIndex + 1}-{Math.min(endIndex, filteredTenders.length)}</span> of <span className="text-slate-600">{filteredTenders.length}</span> tenders
-                  </div>
-                </div>
+                
               </div>
 
               {showEditForm && editingTender && (
