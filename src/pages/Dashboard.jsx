@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -81,7 +81,14 @@ const Dashboard = () => {
   });
   const [emailStatus, setEmailStatus] = useState(null);
   const [pendingUsers, setPendingUsers] = useState([]);
+  const [users, setUsers] = useState([]);
   const [approvingUsers, setApprovingUsers] = useState({}); // {userId: {selectedVerticals: []}}
+  const [editingUser, setEditingUser] = useState(null);
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [editUserVerticals, setEditUserVerticals] = useState([]);
+
+  // Ref to prevent concurrent fetchAlerts calls
+  const isFetchingAlerts = useRef(false);
 
   // Advanced filtering and sorting state
   const [startDate, setStartDate] = useState("");
@@ -98,9 +105,11 @@ const Dashboard = () => {
     fetchTenders();
     fetchAlerts();
 
-    // Clean up old acknowledged alerts on component mount
+    // Clean up old acknowledged alerts on component mount (user-specific)
     const cleanupOldAlerts = () => {
-      const acknowledgedAlerts = JSON.parse(localStorage.getItem('acknowledgedAlerts') || '{}');
+      const userEmail = localStorage.getItem('userEmail') || "";
+      const storageKey = `acknowledgedAlerts_${userEmail}`;
+      const acknowledgedAlerts = JSON.parse(localStorage.getItem(storageKey) || '{}');
       const now = new Date();
       const thirtyDaysAgo = new Date(now);
       thirtyDaysAgo.setDate(now.getDate() - 30);
@@ -121,7 +130,7 @@ const Dashboard = () => {
         }
       });
 
-      localStorage.setItem('acknowledgedAlerts', JSON.stringify(cleanedAlerts));
+      localStorage.setItem(storageKey, JSON.stringify(cleanedAlerts));
     };
 
     cleanupOldAlerts();
@@ -184,13 +193,16 @@ const Dashboard = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      // Remove duplicate tenders by ID
+      // Remove duplicate tenders by TenderNumber (keeping the newest one as per API sort)
       const uniqueTenders = [];
-      const seenIds = new Set();
+      const seenTenderNumbers = new Set();
 
       res.data.forEach(tender => {
-        if (!seenIds.has(tender._id)) {
-          seenIds.add(tender._id);
+        if (tender.TenderNumber && !seenTenderNumbers.has(tender.TenderNumber)) {
+          seenTenderNumbers.add(tender.TenderNumber);
+          uniqueTenders.push(tender);
+        } else if (!tender.TenderNumber) {
+          // Keep tenders without numbers if any
           uniqueTenders.push(tender);
         }
       });
@@ -198,48 +210,34 @@ const Dashboard = () => {
       setTenders(uniqueTenders);
       setCurrentPage(1);
     } catch (err) {
-      console.error(err);
+      console.error("Error fetching tenders:", err);
     }
   };
 
   // Fetch alerts (tenders due in next 7 days)
-  // Fetch alerts (tenders due in next 7 days)
   const fetchAlerts = async () => {
+    console.log('=== fetchAlerts called ===', new Date().toISOString());
+
+    // Prevent concurrent calls
+    if (isFetchingAlerts.current) {
+      console.log('fetchAlerts already running, skipping...');
+      return;
+    }
+
+    isFetchingAlerts.current = true;
+
     try {
       const tendersRes = await axios.get("http://localhost:5000/api/tenders", {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      // Debug: Check for duplicate tender IDs
-      const tenderIds = tendersRes.data.map(t => t._id);
-      const uniqueIds = [...new Set(tenderIds)];
-
-      if (tenderIds.length !== uniqueIds.length) {
-        console.warn('Warning: Duplicate tender IDs found in API response');
-        // Remove duplicates by creating a map of unique tenders
-        const uniqueTenders = [];
-        const seenIds = new Set();
-
-        tendersRes.data.forEach(tender => {
-          if (!seenIds.has(tender._id)) {
-            seenIds.add(tender._id);
-            uniqueTenders.push(tender);
-          }
-        });
-
-        // Use unique tenders
-        tendersRes.data = uniqueTenders;
-      }
-
       const now = new Date();
-      const sevenDaysLater = new Date(now);
-      sevenDaysLater.setDate(now.getDate() + 7);
-
-      // Reset acknowledgedAlerts for past tenders
-      const acknowledgedAlerts = JSON.parse(localStorage.getItem('acknowledgedAlerts') || '{}');
+      const userEmail = localStorage.getItem('userEmail') || "";
+      const storageKey = `acknowledgedAlerts_${userEmail}`;
+      const acknowledgedAlerts = JSON.parse(localStorage.getItem(storageKey) || '{}');
       const updatedAcknowledgedAlerts = { ...acknowledgedAlerts };
 
-      // Remove expired acknowledgments (tenders older than 7 days)
+      // 1. Remove expired acknowledgments (tenders older than 7 days)
       Object.keys(updatedAcknowledgedAlerts).forEach(tenderId => {
         const tender = tendersRes.data.find(t => t._id === tenderId);
         if (tender && tender.Deadline) {
@@ -257,9 +255,10 @@ const Dashboard = () => {
         }
       });
 
-      // Save cleaned up acknowledgments
-      localStorage.setItem('acknowledgedAlerts', JSON.stringify(updatedAcknowledgedAlerts));
+      // Save cleaned up acknowledgments (user-specific)
+      localStorage.setItem(storageKey, JSON.stringify(updatedAcknowledgedAlerts));
 
+      // 2. Filter for upcoming and not acknowledged
       const upcomingTenders = tendersRes.data.filter(tender => {
         if (!tender.Deadline) return false;
 
@@ -280,9 +279,27 @@ const Dashboard = () => {
         return isUpcoming && !isAcknowledged;
       });
 
-      setAlerts(upcomingTenders);
+      // 3. Deduplicate alerts by TenderNumber to fix the duplicates issue
+      const uniqueAlertsByNumber = [];
+      const seenTenderNumbers = new Set();
+
+      upcomingTenders.forEach(alert => {
+        if (alert.TenderNumber && !seenTenderNumbers.has(alert.TenderNumber)) {
+          seenTenderNumbers.add(alert.TenderNumber);
+          uniqueAlertsByNumber.push(alert);
+        } else if (!alert.TenderNumber) {
+          uniqueAlertsByNumber.push(alert);
+        }
+      });
+
+      console.log('Total tenders from API:', tendersRes.data.length);
+      console.log('Upcoming alerts after filtering & deduplication:', uniqueAlertsByNumber.length);
+
+      setAlerts(uniqueAlertsByNumber);
     } catch (err) {
       console.error('Error fetching alerts:', err);
+    } finally {
+      isFetchingAlerts.current = false;
     }
   };
 
@@ -301,6 +318,17 @@ const Dashboard = () => {
       setApprovingUsers(initialApprovingState);
     } catch (err) {
       console.error('Error fetching pending users:', err);
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/api/auth/users", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setUsers(res.data);
+    } catch (err) {
+      console.error('Error fetching users:', err);
     }
   };
 
@@ -347,55 +375,109 @@ const Dashboard = () => {
         }
       }
 
-      return { ...prev, [userId]: userState };
     });
   };
 
-const handleDownloadPDF = () => {
-  const doc = new jsPDF();
+  const handleEditUserVerticals = (user) => {
+    setEditingUser(user);
+    setEditUserVerticals(user.allowedVerticals || []);
+    setShowEditUserModal(true);
+  };
 
-  // Add Header
-  doc.setFontSize(18);
-  doc.text("Tender Portal - Report", 14, 22);
-  doc.setFontSize(10);
-  doc.setTextColor(100);
-  doc.text(`Generated on: ${new Date().toLocaleDateString('en-IN')}`, 14, 30);
+  const toggleEditUserVertical = (vertical) => {
+    setEditUserVerticals(prev => {
+      if (vertical === 'ALL') {
+        if (prev.includes('ALL')) {
+          return [];
+        } else {
+          return ['ALL'];
+        }
+      } else {
+        const filteredVerticals = prev.filter(v => v !== 'ALL');
+        if (filteredVerticals.includes(vertical)) {
+          return filteredVerticals.filter(v => v !== vertical);
+        } else {
+          return [...filteredVerticals, vertical];
+        }
+      }
+    });
+  };
 
-  // Define columns - ADD BID PRICE AND EMD
-  const columns = [
-    { header: "#", dataKey: "index" },
-    { header: "Tender Number", dataKey: "TenderNumber" },
-    { header: "Description", dataKey: "Description" },
-    { header: "Vertical", dataKey: "Vertical" },
-    { header: "Deadline", dataKey: "Deadline" },
-    { header: "Status", dataKey: "Status" },
-    { header: "Bid Price", dataKey: "BidPrice" },
-    { header: "EMD", dataKey: "EMD" }
-  ];
+  const handleSaveUserVerticals = async () => {
+    if (!editingUser) return;
 
-  // Prepare data
-  const rows = filteredTenders.map((tender, idx) => ({
-    index: idx + 1,
-    TenderNumber: tender.TenderNumber || "-",
-    Description: tender.Description || "-",
-    Vertical: tender.Vertical || "-",
-    Deadline: formatDeadlineForDisplay(tender.Deadline) || "-",
-    Status: tender.Status || "-",
-    BidPrice: tender.BidPrice || "-",
-    EMD: tender.EMD || "-"
-  }));
+    try {
+      if (editUserVerticals.length === 0) {
+        setEmailStatus({ type: "error", message: "Please select at least one vertical or 'ALL'" });
+        return;
+      }
 
-  autoTable(doc, {
-    startY: 35,
-    columns: columns,
-    body: rows,
-    headStyles: { fillColor: [58, 91, 36] }, // Custom green color matching the UI
-    styles: { fontSize: 8 },
-    alternateRowStyles: { fillColor: [245, 250, 245] }
-  });
+      await axios.put(
+        `http://localhost:5000/api/auth/approve-user/${editingUser._id}`,
+        { allowedVerticals: editUserVerticals },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-  doc.save(`Tender_Report_${new Date().toISOString().split('T')[0]}.pdf`);
-};
+      setEmailStatus({ type: "success", message: "User verticals updated successfully!" });
+      setShowEditUserModal(false);
+      setEditingUser(null);
+      setEditUserVerticals([]);
+      fetchUsers(); // Refresh users list
+      setTimeout(() => setEmailStatus(null), 3000);
+    } catch (err) {
+      console.error('Error updating user verticals:', err);
+      setEmailStatus({
+        type: "error",
+        message: `Failed to update verticals: ${err.response?.data?.message || err.message}`
+      });
+    }
+  };
+
+  const handleDownloadPDF = () => {
+    const doc = new jsPDF();
+
+    // Add Header
+    doc.setFontSize(18);
+    doc.text("Tender Portal - Report", 14, 22);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${new Date().toLocaleDateString('en-IN')}`, 14, 30);
+
+    // Define columns - ADD BID PRICE AND EMD
+    const columns = [
+      { header: "#", dataKey: "index" },
+      { header: "Tender Number", dataKey: "TenderNumber" },
+      { header: "Description", dataKey: "Description" },
+      { header: "Vertical", dataKey: "Vertical" },
+      { header: "Deadline", dataKey: "Deadline" },
+      { header: "Status", dataKey: "Status" },
+      { header: "Bid Price", dataKey: "BidPrice" },
+      { header: "EMD", dataKey: "EMD" }
+    ];
+
+    // Prepare data
+    const rows = filteredTenders.map((tender, idx) => ({
+      index: idx + 1,
+      TenderNumber: tender.TenderNumber || "-",
+      Description: tender.Description || "-",
+      Vertical: tender.Vertical || "-",
+      Deadline: formatDeadlineForDisplay(tender.Deadline) || "-",
+      Status: tender.Status || "-",
+      BidPrice: tender.BidPrice || "-",
+      EMD: tender.EMD || "-"
+    }));
+
+    autoTable(doc, {
+      startY: 35,
+      columns: columns,
+      body: rows,
+      headStyles: { fillColor: [58, 91, 36] }, // Custom green color matching the UI
+      styles: { fontSize: 8 },
+      alternateRowStyles: { fillColor: [245, 250, 245] }
+    });
+
+    doc.save(`Tender_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
 
 
   // Send reminder email for specific tender
@@ -426,7 +508,15 @@ const handleDownloadPDF = () => {
 
   // Acknowledge alert
   const handleAcknowledgeAlert = (tenderId) => {
-    const acknowledgedAlerts = JSON.parse(localStorage.getItem('acknowledgedAlerts') || '{}');
+    const userEmail = localStorage.getItem('userEmail');
+    console.log('Dismissing alert - User Email:', userEmail);
+    console.log('Dismissing alert - Tender ID:', tenderId);
+
+    const storageKey = `acknowledgedAlerts_${userEmail}`;
+    console.log('Storage Key:', storageKey);
+
+    const acknowledgedAlerts = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    console.log('Current acknowledged alerts:', acknowledgedAlerts);
 
     // Add with timestamp to track when it was acknowledged
     acknowledgedAlerts[tenderId] = {
@@ -434,7 +524,9 @@ const handleDownloadPDF = () => {
       acknowledged: true
     };
 
-    localStorage.setItem('acknowledgedAlerts', JSON.stringify(acknowledgedAlerts));
+    localStorage.setItem(storageKey, JSON.stringify(acknowledgedAlerts));
+    console.log('Updated acknowledged alerts:', acknowledgedAlerts);
+    console.log('Saved to localStorage under key:', storageKey);
 
     // Remove from alerts state
     setAlerts(prev => prev.filter(alert => alert._id !== tenderId));
@@ -603,6 +695,7 @@ const handleDownloadPDF = () => {
         setActiveTab={(tab) => {
           setActiveTab(tab);
           if (tab === 'alerts') fetchAlerts();
+          if (tab === 'users') fetchUsers();
           if (tab === 'approvals') fetchPendingUsers();
         }}
         alertCount={alerts.length}
@@ -754,6 +847,25 @@ const handleDownloadPDF = () => {
                     />
                   </div>
 
+                  {/* Download PDF Button */}
+                  <button
+                    onClick={handleDownloadPDF}
+                    title="Download PDF Report"
+                    className="flex items-center justify-center p-2.5 bg-white hover:bg-slate-50 text-emerald-700 border border-slate-200 rounded-xl transition-all active:scale-95"
+                  >
+                    <FiDownload size={20} />
+                  </button>
+
+                  {/* Add New Tender Button - Only for admin */}
+                  {userRole === "admin" && (
+                    <button
+                      onClick={() => setShowForm(true)}
+                      className="flex items-center justify-center gap-2 bg-gradient-to-r from-[#3a5b24] to-emerald-700 hover:from-emerald-800 hover:to-emerald-800 text-white px-6 py-2.5 rounded-xl font-medium transition-all shadow-lg shadow-emerald-900/10 active:scale-95 whitespace-nowrap"
+                    >
+                      <FiPlus /> Add New Tender
+                    </button>
+                  )}
+
                   {/* Reset Filters */}
                   {(searchTerm || filterVertical || filterStatus || startDate || endDate) && (
                     <button
@@ -777,25 +889,6 @@ const handleDownloadPDF = () => {
                 <div className="flex justify-between items-center w-full">
                   <div className="text-xs text-slate-400 font-medium">
                     Showing <span className="text-slate-600">{startIndex + 1}-{Math.min(endIndex, filteredTenders.length)}</span> of <span className="text-slate-600">{filteredTenders.length}</span> tenders
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={handleDownloadPDF}
-                      title="Download PDF Report"
-                      className="flex items-center justify-center p-2.5 bg-white hover:bg-slate-50 text-emerald-700 border border-slate-200 rounded-xl transition-all active:scale-95"
-                    >
-                      <FiDownload size={20} />
-                    </button>
-
-                    {/* Only show Add New Tender button for admin */}
-                    {userRole === "admin" && (
-                      <button
-                        onClick={() => setShowForm(true)}
-                        className="flex items-center justify-center gap-2 bg-gradient-to-r from-[#3a5b24] to-emerald-700 hover:from-emerald-800 hover:to-emerald-800 text-white px-6 py-2.5 rounded-xl font-medium transition-all shadow-lg shadow-emerald-900/10 active:scale-95 whitespace-nowrap"
-                      >
-                        <FiPlus /> Add New Tender
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>
@@ -930,184 +1023,184 @@ const handleDownloadPDF = () => {
               )}
 
               {/* Table */}
-<div className="overflow-x-auto">
-  <table className="w-full text-sm text-left">
-    <thead className="bg-emerald-50/50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
-      <tr>
-        {COLUMNS.map((col) => {
-          const isSortable = col !== "SNo";
-          const isActive = sortField === col;
-          
-          // Define column width classes based on column type
-          const getColumnWidth = () => {
-            switch(col) {
-              case "SNo":
-                return "w-12"; // Serial number - narrower
-              case "TenderNumber":
-                return "w-44"; // Tender number - medium
-              case "Description":
-                return "min-w-[280px] max-w-[380px]"; // Description - slightly narrower
-              case "Vertical":
-                return "w-24"; // Vertical - narrower
-              case "Deadline":
-                return "min-w-[160px] max-w-[200px]"; // Deadline - wider
-              case "Status":
-      return "min-w-[100px] max-w-[120px]"; 
-              case "BidPrice":
-                return "w-28"; // Bid Price - narrower
-              case "EMD":
-                return "w-24"; // EMD - narrower
-              default:
-                return "";
-            }
-          };
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-emerald-50/50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
+                    <tr>
+                      {COLUMNS.map((col) => {
+                        const isSortable = col !== "SNo";
+                        const isActive = sortField === col;
 
-          return (
-            <th
-              key={col}
-              className={`px-3 py-2 whitespace-nowrap text-slate-900 ${getColumnWidth()} ${isSortable ? 'cursor-pointer hover:bg-emerald-100/50 transition-colors group' : ''}`}
-              onClick={() => {
-                if (isSortable) {
-                  if (isActive) {
-                    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-                  } else {
-                    setSortField(col);
-                    setSortOrder('asc');
-                  }
-                }
-              }}
-            >
-              <div className="flex items-center gap-1">
-                {col === "SNo" ? "#" : 
-                 col === "BidPrice" ? "Bid Price" :
-                 col === "EMD" ? "EMD" :
-                 col.replace(/([A-Z])/g, ' $1').trim()}
-                {isActive ? (
-                  sortOrder === 'asc' ? <FiArrowUp className="text-emerald-700" size={12} /> : <FiArrowDown className="text-emerald-700" size={12} />
-                ) : (
-                  isSortable && <FiArrowUp className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" size={12} />
-                )}
+                        // Define column width classes based on column type
+                        const getColumnWidth = () => {
+                          switch (col) {
+                            case "SNo":
+                              return "w-12"; // Serial number - narrower
+                            case "TenderNumber":
+                              return "w-44"; // Tender number - medium
+                            case "Description":
+                              return "min-w-[280px] max-w-[380px]"; // Description - slightly narrower
+                            case "Vertical":
+                              return "w-24"; // Vertical - narrower
+                            case "Deadline":
+                              return "min-w-[160px] max-w-[200px]"; // Deadline - wider
+                            case "Status":
+                              return "min-w-[100px] max-w-[120px]";
+                            case "BidPrice":
+                              return "w-28"; // Bid Price - narrower
+                            case "EMD":
+                              return "w-24"; // EMD - narrower
+                            default:
+                              return "";
+                          }
+                        };
+
+                        return (
+                          <th
+                            key={col}
+                            className={`px-3 py-2 whitespace-nowrap text-slate-900 ${getColumnWidth()} ${isSortable ? 'cursor-pointer hover:bg-emerald-100/50 transition-colors group' : ''}`}
+                            onClick={() => {
+                              if (isSortable) {
+                                if (isActive) {
+                                  setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                                } else {
+                                  setSortField(col);
+                                  setSortOrder('asc');
+                                }
+                              }
+                            }}
+                          >
+                            <div className="flex items-center gap-1">
+                              {col === "SNo" ? "#" :
+                                col === "BidPrice" ? "Bid Price" :
+                                  col === "EMD" ? "EMD" :
+                                    col.replace(/([A-Z])/g, ' $1').trim()}
+                              {isActive ? (
+                                sortOrder === 'asc' ? <FiArrowUp className="text-emerald-700" size={12} /> : <FiArrowDown className="text-emerald-700" size={12} />
+                              ) : (
+                                isSortable && <FiArrowUp className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" size={12} />
+                              )}
+                            </div>
+                          </th>
+                        );
+                      })}
+                      <th className="px-3 py-2 text-center text-slate-900 w-28">Actions</th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100">
+                    {currentTenders.length === 0 ? (
+                      <tr>
+                        <td colSpan={COLUMNS.length + 1} className="px-6 py-10 text-center text-slate-500 bg-slate-50/30">
+                          <div className="flex flex-col items-center gap-2">
+                            <FiFileText size={36} className="text-slate-300" />
+                            <p className="text-lg">{searchTerm ? "No tenders match your search." : "No tenders found."}</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      currentTenders.map((tender, index) => (
+                        <tr key={tender._id} className="hover:bg-slate-50/80 transition-colors group">
+                          {COLUMNS.map((col) => {
+                            // Define cell width classes to match header
+                            const getCellWidth = () => {
+                              switch (col) {
+                                case "SNo":
+                                  return "w-12";
+                                case "TenderNumber":
+                                  return "w-44";
+                                case "Description":
+                                  return "min-w-[280px] max-w-[380px]";
+                                case "Vertical":
+                                  return "w-24";
+                                case "Deadline":
+                                  return "min-w-[160px] max-w-[200px]";
+                                case "Status":
+                                  return "w-24";
+                                case "BidPrice":
+                                  return "w-28";
+                                case "EMD":
+                                  return "w-24";
+                                default:
+                                  return "";
+                              }
+                            };
+
+                            return (
+                              <td key={col} className={`px-3 py-2 ${getCellWidth()} align-middle`}>
+                                {col === "SNo" ? (
+                                  <span className="font-medium text-slate-400 text-xs">{startIndex + index + 1}</span>
+                                ) : col === "Deadline" ? (
+                                  <span className="text-slate-600 font-medium text-xs block truncate" title={formatDeadlineForDisplay(tender[col])}>
+                                    {formatDeadlineForDisplay(tender[col])}
+                                  </span>
+                                ) : col === "Status" ? (
+                                  <span className={`px-2 py-1 rounded-full text-[9px] font-bold uppercase ${tender[col] === 'Won' || tender[col] === 'L1' ? 'bg-green-100 text-green-700' :
+                                    tender[col] === 'Active' ? 'bg-blue-100 text-blue-700' :
+                                      tender[col] === 'Rejected' || tender[col] === 'Dropped' ? 'bg-red-100 text-red-700' :
+                                        'bg-slate-100 text-slate-700'
+                                    }`}>
+                                    {tender[col] || "-"}
+                                  </span>
+                                ) : col === "BidPrice" || col === "EMD" ? (
+                                  <span className="text-slate-600 font-medium text-xs block truncate" title={tender[col]}>
+                                    {tender[col] ? `₹${tender[col]}` : "-"}
+                                  </span>
+                                ) : col === "Description" ? (
+                                  <span className="text-slate-600 text-xs block truncate" title={tender[col]}>
+                                    {tender[col] || "-"}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-600 text-xs block truncate" title={tender[col]}>
+                                    {tender[col] || "-"}
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          })}
+
+                          <td className="px-3 py-2 w-28 align-middle">
+                            <div className="flex gap-2 justify-center">
+                              <button
+                                onClick={() => {
+                                  setSelectedTender(tender);
+                                  setShowDetails(true);
+                                }}
+                                className="text-emerald-600 hover:text-emerald-700 p-1 hover:bg-emerald-50 rounded-lg transition-all"
+                                title="View Details"
+                              >
+                                <FiInfo size={14} />
+                              </button>
+
+                              {/* Only show edit button for admin users */}
+                              {userRole === "admin" && (
+                                <button
+                                  onClick={() => startEdit(tender)}
+                                  className="text-blue-500 hover:text-blue-700 p-1 hover:bg-blue-50 rounded-lg transition-all"
+                                  title="Edit"
+                                >
+                                  <FiEdit size={14} />
+                                </button>
+                              )}
+
+                              {/* Only show delete button for admin users */}
+                              {userRole === "admin" && (
+                                <button
+                                  onClick={() => handleDelete(tender._id)}
+                                  className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg transition-all"
+                                  title="Delete"
+                                >
+                                  <FiTrash2 size={14} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
-            </th>
-          );
-        })}
-        <th className="px-3 py-2 text-center text-slate-900 w-28">Actions</th>
-      </tr>
-    </thead>
-
-    <tbody className="divide-y divide-slate-100">
-      {currentTenders.length === 0 ? (
-        <tr>
-          <td colSpan={COLUMNS.length + 1} className="px-6 py-10 text-center text-slate-500 bg-slate-50/30">
-            <div className="flex flex-col items-center gap-2">
-              <FiFileText size={36} className="text-slate-300" />
-              <p className="text-lg">{searchTerm ? "No tenders match your search." : "No tenders found."}</p>
-            </div>
-          </td>
-        </tr>
-      ) : (
-        currentTenders.map((tender, index) => (
-          <tr key={tender._id} className="hover:bg-slate-50/80 transition-colors group">
-            {COLUMNS.map((col) => {
-              // Define cell width classes to match header
-              const getCellWidth = () => {
-                switch(col) {
-                  case "SNo":
-                    return "w-12";
-                  case "TenderNumber":
-                    return "w-44";
-                  case "Description":
-                    return "min-w-[280px] max-w-[380px]";
-                  case "Vertical":
-                    return "w-24";
-                  case "Deadline":
-                    return "min-w-[160px] max-w-[200px]";
-                  case "Status":
-                    return "w-24";
-                  case "BidPrice":
-                    return "w-28";
-                  case "EMD":
-                    return "w-24";
-                  default:
-                    return "";
-                }
-              };
-
-              return (
-                <td key={col} className={`px-3 py-2 ${getCellWidth()} align-middle`}>
-                  {col === "SNo" ? (
-                    <span className="font-medium text-slate-400 text-xs">{startIndex + index + 1}</span>
-                  ) : col === "Deadline" ? (
-                    <span className="text-slate-600 font-medium text-xs block truncate" title={formatDeadlineForDisplay(tender[col])}>
-                      {formatDeadlineForDisplay(tender[col])}
-                    </span>
-                  ) : col === "Status" ? (
-                    <span className={`px-2 py-1 rounded-full text-[9px] font-bold uppercase ${tender[col] === 'Won' || tender[col] === 'L1' ? 'bg-green-100 text-green-700' :
-                      tender[col] === 'Active' ? 'bg-blue-100 text-blue-700' :
-                        tender[col] === 'Rejected' || tender[col] === 'Dropped' ? 'bg-red-100 text-red-700' :
-                          'bg-slate-100 text-slate-700'
-                      }`}>
-                      {tender[col] || "-"}
-                    </span>
-                  ) : col === "BidPrice" || col === "EMD" ? (
-                    <span className="text-slate-600 font-medium text-xs block truncate" title={tender[col]}>
-                      {tender[col] ? `₹${tender[col]}` : "-"}
-                    </span>
-                  ) : col === "Description" ? (
-                    <span className="text-slate-600 text-xs block truncate" title={tender[col]}>
-                      {tender[col] || "-"}
-                    </span>
-                  ) : (
-                    <span className="text-slate-600 text-xs block truncate" title={tender[col]}>
-                      {tender[col] || "-"}
-                    </span>
-                  )}
-                </td>
-              );
-            })}
-
-            <td className="px-3 py-2 w-28 align-middle">
-              <div className="flex gap-2 justify-center">
-                <button
-                  onClick={() => {
-                    setSelectedTender(tender);
-                    setShowDetails(true);
-                  }}
-                  className="text-emerald-600 hover:text-emerald-700 p-1 hover:bg-emerald-50 rounded-lg transition-all"
-                  title="View Details"
-                >
-                  <FiInfo size={14} />
-                </button>
-
-                {/* Only show edit button for admin users */}
-                {userRole === "admin" && (
-                  <button
-                    onClick={() => startEdit(tender)}
-                    className="text-blue-500 hover:text-blue-700 p-1 hover:bg-blue-50 rounded-lg transition-all"
-                    title="Edit"
-                  >
-                    <FiEdit size={14} />
-                  </button>
-                )}
-
-                {/* Only show delete button for admin users */}
-                {userRole === "admin" && (
-                  <button
-                    onClick={() => handleDelete(tender._id)}
-                    className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg transition-all"
-                    title="Delete"
-                  >
-                    <FiTrash2 size={14} />
-                  </button>
-                )}
-              </div>
-            </td>
-          </tr>
-        ))
-      )}
-    </tbody>
-  </table>
-</div>
               {/* Pagination & Summary */}
               <div className="p-6 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-50/30">
                 <div className="text-sm text-slate-500 font-medium">
@@ -1249,6 +1342,108 @@ const handleDownloadPDF = () => {
           </div>
         )}
 
+        {/* Users Tab */}
+        {activeTab === "users" && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 bg-slate-50/50">
+                <h3 className="text-lg font-bold text-slate-900">All Users</h3>
+                <p className="text-sm text-slate-500">View all registered users in the system</p>
+              </div>
+
+              {users.length === 0 ? (
+                <div className="text-center py-20">
+                  <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <FiInfo className="w-10 h-10 text-slate-300" />
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-900 mb-2">No users found</h3>
+                  <p className="text-slate-500">There are no registered users in the system.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
+                      <tr>
+                        <th className="px-6 py-4">#</th>
+                        <th className="px-6 py-4">Email</th>
+                        <th className="px-6 py-4">Role</th>
+                        <th className="px-6 py-4">Status</th>
+                        <th className="px-6 py-4">Allowed Verticals</th>
+                        <th className="px-6 py-4">Registered On</th>
+                        <th className="px-6 py-4 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {users.map((user, index) => (
+                        <tr key={user._id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <span className="font-semibold text-slate-900">{index + 1}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-slate-700">{user.email}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${user.role === 'admin'
+                              ? 'bg-purple-100 text-purple-700'
+                              : 'bg-blue-100 text-blue-700'
+                              }`}>
+                              {user.role}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${user.isApproved
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-amber-100 text-amber-700'
+                              }`}>
+                              {user.isApproved ? 'Approved' : 'Pending'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-1.5 max-w-md">
+                              {user.allowedVerticals && user.allowedVerticals.length > 0 ? (
+                                user.allowedVerticals.map((vertical, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded text-[10px] font-semibold border border-emerald-100"
+                                  >
+                                    {vertical}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-slate-400 text-xs italic">Not assigned</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-slate-600 text-xs">
+                              {user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-IN', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric'
+                              }) : '-'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <button
+                              onClick={() => handleEditUserVerticals(user)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                              title="Edit Verticals"
+                            >
+                              <FiEdit className="text-lg" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Approval Requests Tab */}
         {activeTab === "approvals" && (
           <div className="space-y-6">
@@ -1322,6 +1517,81 @@ const handleDownloadPDF = () => {
           </div>
         )}
       </main>
+
+      {/* Edit User Verticals Modal - Rendered at root level */}
+      {showEditUserModal && editingUser && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">Edit User Verticals</h3>
+                <p className="text-sm text-slate-500 mt-1">{editingUser.email}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowEditUserModal(false);
+                  setEditingUser(null);
+                  setEditUserVerticals([]);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-2 hover:bg-slate-100 rounded-lg transition-all"
+              >
+                <FiX size={20} />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-slate-700 mb-3">
+                  Assign Allowed Verticals
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {['ALL', 'AR/VR', 'AI', 'AI/UGV', 'UGV', 'OTHERS', 'DRONE/AI', 'UAV', 'RCWS/AWS'].map((vertical) => {
+                    const isSelected = editUserVerticals.includes(vertical);
+                    return (
+                      <button
+                        key={vertical}
+                        onClick={() => toggleEditUserVertical(vertical)}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all border ${isSelected
+                          ? "bg-[#3a5b24] text-white border-[#3a5b24] shadow-sm"
+                          : "bg-white text-slate-600 border-slate-200 hover:border-emerald-200 hover:bg-emerald-50"
+                          }`}
+                      >
+                        {vertical}
+                      </button>
+                    );
+                  })}
+                </div>
+                {editUserVerticals.length === 0 && (
+                  <p className="text-xs text-amber-600 mt-2">Please select at least one vertical</p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setShowEditUserModal(false);
+                    setEditingUser(null);
+                    setEditUserVerticals([]);
+                  }}
+                  className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveUserVerticals}
+                  disabled={editUserVerticals.length === 0}
+                  className={`px-6 py-2.5 rounded-xl font-medium transition-all ${editUserVerticals.length === 0
+                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-[#3a5b24] to-emerald-700 hover:from-emerald-800 hover:to-emerald-800 text-white shadow-lg shadow-emerald-900/10 active:scale-95'
+                    }`}
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -15,7 +15,7 @@ const Login = () => {
     setError("");
     setLoading(true);
     try {
-      const res = await axios.post("http://192.168.0.160:5000/api/auth/login", { email, password });
+      const res = await axios.post("http://localhost:5000/api/auth/login", { email, password });
       localStorage.setItem("token", res.data.token);
       localStorage.setItem("userEmail", email);
       localStorage.setItem("userRole", res.data.user.role);
