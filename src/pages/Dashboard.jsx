@@ -847,27 +847,7 @@ const Dashboard = () => {
                     />
                   </div>
 
-                  {/* Download PDF Button */}
-                  <button
-                    onClick={handleDownloadPDF}
-                    title="Download PDF Report"
-                    className="flex items-center justify-center p-2.5 bg-white hover:bg-slate-50 text-emerald-700 border border-slate-200 rounded-xl transition-all active:scale-95"
-                  >
-                    <FiDownload size={20} />
-                  </button>
-
-                  {/* Add New Tender Button - Only for admin */}
-                 {userRole === "admin" && (
-  <button
-    onClick={() => setShowForm(true)}
-    className="flex items-center justify-center gap-2 bg-gradient-to-r from-[#3a5b24] to-emerald-700 hover:from-emerald-800 hover:to-emerald-800 text-white px-3 py-2 rounded-lg text-sm font-medium transition-all shadow-md active:scale-95"
-  >
-    <FiPlus size={14} /> Add Tender
-  </button>
-)}
-
-
-                  {/* Reset Filters */}
+                  {/* Reset Filters - Moved beside Deadline */}
                   {(searchTerm || filterVertical || filterStatus || startDate || endDate) && (
                     <button
                       onClick={() => {
@@ -885,9 +865,33 @@ const Dashboard = () => {
                       Clear All
                     </button>
                   )}
+
+                  {/* Download PDF Button */}
+                  <button
+                    onClick={handleDownloadPDF}
+                    title="Download PDF Report"
+                    className="flex items-center justify-center p-2 bg-white hover:bg-slate-50 text-emerald-700 border border-slate-200 rounded-xl transition-all active:scale-95"
+                  >
+                    <FiDownload size={18} />
+                  </button>
+
+                  {/* Add New Tender Button - Only for admin */}
+                  {userRole === "admin" && (
+                    <button
+                      onClick={() => setShowForm(true)}
+                      className="flex items-center justify-center gap-1.5 bg-gradient-to-r from-[#3a5b24] to-emerald-700 hover:from-emerald-800 hover:to-emerald-800 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all shadow-md shadow-emerald-900/10 active:scale-95 whitespace-nowrap"
+                    >
+                      <FiPlus size={16} /> <span className="text-xs font-bold uppercase tracking-tight">Add New Tender</span>
+                    </button>
+                  )}
+
                 </div>
 
-                
+                <div className="flex justify-between items-center w-full">
+                  <div className="text-xs text-slate-400 font-medium">
+                    Showing <span className="text-slate-600">{startIndex + 1}-{Math.min(endIndex, filteredTenders.length)}</span> of <span className="text-slate-600">{filteredTenders.length}</span> tenders
+                  </div>
+                </div>
               </div>
 
               {showEditForm && editingTender && (
