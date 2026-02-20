@@ -26,7 +26,9 @@ import {
   FiExternalLink,
   FiDownload,
   FiArrowUp,
-  FiArrowDown
+  FiArrowDown,
+  FiClipboard,
+  FiList
 } from "react-icons/fi";
 
 const COLUMNS = [
@@ -42,19 +44,21 @@ const COLUMNS = [
 
 const ITEMS_PER_PAGE = 20;
 
-const DetailItem = ({ label, value, isBadge = false }) => (
-  <div className="flex flex-col gap-1">
-    <span className="text-xs text-slate-400 font-medium">{label}</span>
+const DetailItem = ({ label, value, isBadge = false, fullWidth = false }) => (
+  <div className={`flex flex-col gap-1.5 ${fullWidth ? 'col-span-full' : ''}`}>
+    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{label}</span>
     {isBadge ? (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase w-fit ${value === 'Won' || value === 'L1' ? 'bg-green-100 text-green-700' :
-        value === 'Active' ? 'bg-blue-100 text-blue-700' :
-          value === 'Rejected' || value === 'Dropped' ? 'bg-red-100 text-red-700' :
-            'bg-slate-100 text-slate-700'
+      <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase w-fit ${value === 'Won' || value === 'L1' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' :
+        ['Active', 'PENDING', 'OPEN', 'IN PROGRESS'].includes(String(value).toUpperCase()) ? 'bg-blue-100 text-blue-700 border border-blue-200' :
+          ['REJECTED', 'DROPPED', 'RA LOST'].includes(String(value).toUpperCase()) ? 'bg-red-100 text-red-700 border border-red-200' :
+            'bg-slate-100 text-slate-600 border border-slate-200'
         }`}>
         {value || "-"}
       </span>
     ) : (
-      <span className="text-sm text-slate-700 font-semibold truncate" title={value}>{value || "-"}</span>
+      <span className="text-[13px] text-slate-700 font-medium leading-relaxed whitespace-pre-wrap">
+        {value || <span className="text-slate-300 italic">Not provided</span>}
+      </span>
     )}
   </div>
 );
@@ -95,6 +99,7 @@ const Dashboard = () => {
   const [endDate, setEndDate] = useState("");
   const [sortField, setSortField] = useState("Deadline");
   const [sortOrder, setSortOrder] = useState("asc"); // 'asc' or 'desc'
+  const [copied, setCopied] = useState(false);
 
   const token = localStorage.getItem("token");
   const userRole = localStorage.getItem("userRole");
@@ -743,12 +748,12 @@ const Dashboard = () => {
                 icon={<FiTrendingUp />}
                 color="green"
               />
-              <StatCard
+              {/* <StatCard
                 label="Upcoming Deadlines"
                 value={stats.urgent}
                 icon={<FiAlertCircle />}
                 color="red"
-              />
+              /> */}
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
@@ -887,7 +892,7 @@ const Dashboard = () => {
 
                 </div>
 
-                
+
               </div>
 
               {showEditForm && editingTender && (
@@ -938,81 +943,112 @@ const Dashboard = () => {
                 <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                   <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
                     <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                      <div>
-                        <h3 className="text-xl font-bold text-slate-900">Tender Details</h3>
-                        <p className="text-sm text-slate-500">{selectedTender.TenderNumber}</p>
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-[#3a5b24] rounded-2xl flex items-center justify-center text-white shadow-lg shadow-emerald-200">
+                          <FiList size={24} />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold text-slate-900 tracking-tight">Tender Details</h3>
+                          <div className="flex items-center gap-2 group cursor-pointer" onClick={() => {
+                            navigator.clipboard.writeText(selectedTender.TenderNumber);
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 2000);
+                          }}>
+                            <p className="text-sm text-slate-500 font-medium group-hover:text-emerald-600 transition-colors uppercase tracking-wider">{selectedTender.TenderNumber}</p>
+                            <span className="text-slate-300 group-hover:text-emerald-400 transition-all flex items-center gap-1">
+                              {copied ? (
+                                <span className="text-[10px] text-emerald-500 font-bold animate-pulse">Copied!</span>
+                              ) : (
+                                <FiClipboard size={12} />
+                              )}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <button onClick={() => setShowDetails(false)} className="text-slate-400 hover:text-slate-600 p-2 hover:bg-slate-100 rounded-lg transition-all">
+                      <button onClick={() => setShowDetails(false)} className="text-slate-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-xl transition-all">
                         <FiX size={20} />
                       </button>
                     </div>
 
-                    <div className="p-6 overflow-y-auto">
+                    <div className="p-8 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200">
                       <div className="space-y-8 max-w-2xl mx-auto">
                         {/* Basic Info */}
-                        <div className="border-b border-slate-100 pb-6">
-                          <h4 className="text-xs font-bold text-[#3a5b24] uppercase tracking-wider mb-4">Basic Information</h4>
-                          <div className="space-y-4">
-                            <DetailItem label="Description" value={selectedTender.Description} />
+                        <section className="bg-white rounded-xl p-6 border border-slate-100 shadow-sm">
+                          <h4 className="flex items-center gap-2 text-[11px] font-black text-[#3a5b24] uppercase tracking-[0.15em] mb-6 pb-2 border-b border-emerald-50">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            Basic Information
+                          </h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                            <DetailItem label="Description" value={selectedTender.Description} fullWidth />
                             <DetailItem label="Vertical" value={selectedTender.Vertical} />
-                            <DetailItem label="Organisation" value={selectedTender.OrganisationName} />
                             <DetailItem label="Status" value={selectedTender.Status} isBadge />
+                            <DetailItem label="Organisation" value={selectedTender.OrganisationName} />
                             <DetailItem label="Deadline" value={formatDeadlineForDisplay(selectedTender.Deadline)} />
                           </div>
-                        </div>
+                        </section>
 
                         {/* Financial & Technical */}
-                        <div className="border-b border-slate-100 pb-6">
-                          <h4 className="text-xs font-bold text-[#3a5b24] uppercase tracking-wider mb-4">Financial & Technical</h4>
-                          <div className="space-y-4">
+                        <section className="bg-white rounded-xl p-6 border border-slate-100 shadow-sm">
+                          <h4 className="flex items-center gap-2 text-[11px] font-black text-[#3a5b24] uppercase tracking-[0.15em] mb-6 pb-2 border-b border-emerald-50">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            Financial & Technical
+                          </h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                             <DetailItem label="Bid Price" value={selectedTender.BidPrice} />
                             <DetailItem label="EMD" value={selectedTender.EMD} />
                             <DetailItem label="GEM Status" value={selectedTender.Gem} />
                             <DetailItem label="Pre-bid Date" value={selectedTender.Prebid} />
                           </div>
-                        </div>
+                        </section>
 
                         {/* Competition Info */}
-                        <div className="border-b border-slate-100 pb-6">
-                          <h4 className="text-xs font-bold text-[#3a5b24] uppercase tracking-wider mb-4">Competition & Bidding</h4>
-                          <div className="space-y-4 bg-slate-50 p-5 rounded-xl border border-slate-100">
+                        <section className="bg-emerald-50/30 rounded-xl p-6 border border-emerald-100/50">
+                          <h4 className="flex items-center gap-2 text-[11px] font-black text-[#3a5b24] uppercase tracking-[0.15em] mb-6 pb-2 border-b border-[#3a5b24]/10">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            Competition & Biding
+                          </h4>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <DetailItem label="L1 Bid Details" value={selectedTender.L1BidDetails} />
                             <DetailItem label="L2 Bid Details" value={selectedTender.L2BidDetails} />
                             <DetailItem label="L3 Bid Details" value={selectedTender.L3BidDetails} />
                           </div>
-                        </div>
+                        </section>
 
                         {/* Additional Info */}
-                        <div className="pb-4">
-                          <h4 className="text-xs font-bold text-[#3a5b24] uppercase tracking-wider mb-4">Additional Information</h4>
-                          <div className="space-y-4">
-                            <DetailItem label="Major Specifications" value={selectedTender.MajorSpec} />
-                            <DetailItem label="Current Status Description" value={selectedTender.CurrentStatusDescription} />
-                            <DetailItem label="Remarks" value={selectedTender.Remarks} />
+                        <section className="bg-white rounded-xl p-6 border border-slate-100 shadow-sm">
+                          <h4 className="flex items-center gap-2 text-[11px] font-black text-[#3a5b24] uppercase tracking-[0.15em] mb-6 pb-2 border-b border-emerald-50">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            Additional Context
+                          </h4>
+                          <div className="space-y-6">
+                            <DetailItem label="Major Specifications" value={selectedTender.MajorSpec} fullWidth />
+                            <DetailItem label="Current Status Description" value={selectedTender.CurrentStatusDescription} fullWidth />
+                            <DetailItem label="Remarks" value={selectedTender.Remarks} fullWidth />
                             {selectedTender.Link && (
-                              <div className="flex flex-col gap-1 pt-2">
-                                <span className="text-xs text-slate-400 font-medium">Tender Link</span>
+                              <div className="flex flex-col gap-2 pt-4 border-t border-slate-50">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Tender Link</span>
                                 <a
                                   href={selectedTender.Link}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-sm text-[#3a5b24] font-bold hover:underline flex items-center gap-1 w-fit"
+                                  className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all w-fit shadow-lg shadow-emerald-200"
                                 >
-                                  View Portal <FiExternalLink size={14} />
+                                  Open Web Portal <FiExternalLink size={14} />
                                 </a>
                               </div>
                             )}
                           </div>
-                        </div>
+                        </section>
                       </div>
                     </div>
 
-                    <div className="p-6 border-t border-slate-100 flex justify-end">
+                    <div className="p-4 border-t border-slate-100 flex justify-between items-center bg-slate-50/30 px-8">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">End of Report</span>
                       <button
                         onClick={() => setShowDetails(false)}
-                        className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-2 rounded-xl font-bold transition-all"
+                        className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-slate-200 active:scale-95"
                       >
-                        Close
+                        Dismiss
                       </button>
                     </div>
                   </div>
@@ -1021,8 +1057,8 @@ const Dashboard = () => {
 
               {/* Table */}
               <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-emerald-50/50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
+                <table className="w-full text-sm text-left border-collapse border border-slate-200">
+                  <thead className="bg-emerald-50/50 text-slate-600 font-semibold uppercase tracking-wider text-[11px] border-b border-slate-200">
                     <tr>
                       {COLUMNS.map((col) => {
                         const isSortable = col !== "SNo";
@@ -1055,7 +1091,7 @@ const Dashboard = () => {
                         return (
                           <th
                             key={col}
-                            className={`px-3 py-2 whitespace-nowrap text-slate-900 ${getColumnWidth()} ${isSortable ? 'cursor-pointer hover:bg-emerald-100/50 transition-colors group' : ''}`}
+                            className={`px-3 py-2 border-r border-slate-200 whitespace-nowrap text-slate-900 ${getColumnWidth()} ${isSortable ? 'cursor-pointer hover:bg-emerald-100/50 transition-colors group' : ''}`}
                             onClick={() => {
                               if (isSortable) {
                                 if (isActive) {
@@ -1068,7 +1104,7 @@ const Dashboard = () => {
                             }}
                           >
                             <div className="flex items-center gap-1">
-                              {col === "SNo" ? "#" :
+                              {col === "SNo" ? "SNo" :
                                 col === "BidPrice" ? "Bid Price" :
                                   col === "EMD" ? "EMD" :
                                     col.replace(/([A-Z])/g, ' $1').trim()}
@@ -1081,7 +1117,7 @@ const Dashboard = () => {
                           </th>
                         );
                       })}
-                      <th className="px-3 py-2 text-center text-slate-900 w-28">Actions</th>
+                      <th className="px-3 py-2 text-center text-slate-900 w-28 border-r border-slate-200">Actions</th>
                     </tr>
                   </thead>
 
@@ -1124,7 +1160,7 @@ const Dashboard = () => {
                             };
 
                             return (
-                              <td key={col} className={`px-3 py-2 ${getCellWidth()} align-middle`}>
+                              <td key={col} className={`px-3 py-2 border-r border-slate-100 ${getCellWidth()} align-middle`}>
                                 {col === "SNo" ? (
                                   <span className="font-medium text-slate-400 text-xs">{startIndex + index + 1}</span>
                                 ) : col === "Deadline" ? (
@@ -1156,7 +1192,7 @@ const Dashboard = () => {
                             );
                           })}
 
-                          <td className="px-3 py-2 w-28 align-middle">
+                          <td className="px-3 py-2 border-r border-slate-100 w-28 align-middle">
                             <div className="flex gap-2 justify-center">
                               <button
                                 onClick={() => {
@@ -1243,101 +1279,12 @@ const Dashboard = () => {
           </>
         )}
 
-        {/* Alerts Tab */}
+        {/* Alerts Tab - Commented Out
         {activeTab === "alerts" && (
           <div className="space-y-6">
-            {alerts.length === 0 ? (
-              <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-200">
-                <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <FiBell className="w-10 h-10 text-slate-300" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-900 mb-2">Workspace all clear!</h3>
-                <p className="text-slate-500">No upcoming deadlines or alerts at the moment.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {alerts.map((alert) => {
-                  const daysUntilDeadline = getDaysUntilDeadline(alert.Deadline);
-                  const severity = getAlertSeverity(daysUntilDeadline);
-
-                  return (
-                    <div
-                      key={alert._id}
-                      className={`group relative bg-white rounded-2xl p-6 shadow-sm border transition-all hover:shadow-md ${severity === "high" ? "border-red-100 bg-red-50/10" :
-                        severity === "medium" ? "border-orange-100 bg-orange-50/10" :
-                          "border-blue-100 bg-blue-50/10"
-                        }`}
-                    >
-                      <div className="flex justify-between items-start mb-4">
-                        <div className={`p-3 rounded-xl ${severity === "high" ? "bg-red-500 text-white" :
-                          severity === "medium" ? "bg-orange-500 text-white" :
-                            "bg-blue-500 text-white shadow-lg"
-                          }`}>
-                          <FiBell size={20} />
-                        </div>
-                        <div className="flex gap-2">
-
-                          <button
-                            onClick={() => handleAcknowledgeAlert(alert._id)}
-                            className="p-2 bg-emerald-50 hover:bg-white rounded-lg text-emerald-600 hover:text-emerald-800 transition-all shadow-sm border border-emerald-100"
-                            title="Dismiss Alert"
-                          >
-                            <FiCheckCircle size={18} />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="mb-4">
-                        <h3 className="text-lg font-bold text-slate-900 mb-1">{alert.TenderNumber}</h3>
-                        <p className="text-sm text-slate-500 line-clamp-2 mb-3">{alert.Description || "No description provided."}</p>
-
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase ${severity === "high" ? "bg-red-100 text-red-700" :
-                            severity === "medium" ? "bg-orange-100 text-orange-700" :
-                              "bg-blue-100 text-blue-700"
-                            }`}>
-                            {daysUntilDeadline === 0 ? "Due Today" : `${daysUntilDeadline} Days Left`}
-                          </span>
-                          <span className="text-xs text-slate-400 font-medium">
-                            {formatDeadlineForDisplay(alert.Deadline)}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2 border-t border-slate-100 pt-4 mb-6">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-slate-400">Vertical</span>
-                          <span className="text-slate-700 font-bold">{alert.Vertical || "-"}</span>
-                        </div>
-
-                      </div>
-
-                      <div className="flex gap-3">
-                        <button
-                          onClick={() => {
-                            setActiveTab("tenders");
-                            setSelectedTender(alert);
-                            setShowDetails(true);
-                          }}
-                          className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl text-xs font-bold transition-all"
-                        >
-                          Details
-                        </button>
-                        <button
-                          onClick={() => handleAcknowledgeAlert(alert._id)}
-                          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all text-white ${severity === 'high' ? 'bg-red-500 hover:bg-red-600' : 'bg-[#3a5b24] hover:bg-emerald-800'
-                            }`}
-                        >
-                          <FiCheckCircle /> Dismiss
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            ... content omitted for brevity ...
           </div>
-        )}
+        )} */}
 
         {/* Users Tab */}
         {activeTab === "users" && (
@@ -1358,30 +1305,30 @@ const Dashboard = () => {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
+                  <table className="w-full text-sm text-left border-collapse border border-slate-200">
+                    <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider text-[11px] border-b border-slate-200">
                       <tr>
-                        <th className="px-6 py-4">#</th>
-                        <th className="px-6 py-4">Email</th>
-                        <th className="px-6 py-4">Role</th>
-                        <th className="px-6 py-4">Status</th>
-                        <th className="px-6 py-4">Allowed Verticals</th>
-                        <th className="px-6 py-4">Registered On</th>
-                        <th className="px-6 py-4 text-center">Actions</th>
+                        <th className="px-6 py-4 border-r border-slate-200">SNo</th>
+                        <th className="px-6 py-4 border-r border-slate-200">Email</th>
+                        <th className="px-6 py-4 border-r border-slate-200">Role</th>
+                        <th className="px-6 py-4 border-r border-slate-200">Status</th>
+                        <th className="px-6 py-4 border-r border-slate-200">Allowed Verticals</th>
+                        <th className="px-6 py-4 border-r border-slate-200">Registered On</th>
+                        <th className="px-6 py-4 border-r border-slate-200 text-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {users.map((user, index) => (
                         <tr key={user._id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4 border-r border-slate-100">
                             <span className="font-semibold text-slate-900">{index + 1}</span>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4 border-r border-slate-100">
                             <div className="flex flex-col">
                               <span className="font-semibold text-slate-700">{user.email}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4 border-r border-slate-100">
                             <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${user.role === 'admin'
                               ? 'bg-purple-100 text-purple-700'
                               : 'bg-blue-100 text-blue-700'
@@ -1389,7 +1336,7 @@ const Dashboard = () => {
                               {user.role}
                             </span>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4 border-r border-slate-100">
                             <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${user.isApproved
                               ? 'bg-green-100 text-green-700'
                               : 'bg-amber-100 text-amber-700'
@@ -1397,7 +1344,7 @@ const Dashboard = () => {
                               {user.isApproved ? 'Approved' : 'Pending'}
                             </span>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4 border-r border-slate-100">
                             <div className="flex flex-wrap gap-1.5 max-w-md">
                               {user.allowedVerticals && user.allowedVerticals.length > 0 ? (
                                 user.allowedVerticals.map((vertical, idx) => (
@@ -1413,7 +1360,7 @@ const Dashboard = () => {
                               )}
                             </div>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4 border-r border-slate-100">
                             <span className="text-slate-600 text-xs">
                               {user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-IN', {
                                 day: 'numeric',
@@ -1422,7 +1369,7 @@ const Dashboard = () => {
                               }) : '-'}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-center">
+                          <td className="px-6 py-4 border-r border-slate-100 text-center">
                             <button
                               onClick={() => handleEditUserVerticals(user)}
                               className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
@@ -1460,24 +1407,24 @@ const Dashboard = () => {
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
+                  <table className="w-full text-sm text-left border-collapse border border-slate-200">
+                    <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider text-[11px] border-b border-slate-200">
                       <tr>
-                        <th className="px-6 py-4">User Email</th>
-                        <th className="px-6 py-4">Assign Verticals</th>
-                        <th className="px-6 py-4 text-center">Actions</th>
+                        <th className="px-6 py-4 border-r border-slate-200">User Email</th>
+                        <th className="px-6 py-4 border-r border-slate-200">Assign Verticals</th>
+                        <th className="px-6 py-4 border-r border-slate-200 text-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {pendingUsers.map((user) => (
                         <tr key={user._id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-6 py-4 align-top">
+                          <td className="px-6 py-4 align-top border-r border-slate-100">
                             <div className="flex flex-col">
                               <span className="font-semibold text-slate-700">{user.email}</span>
                               <span className="text-[10px] text-slate-400 mt-1 uppercase">Role: {user.role}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4 border-r border-slate-100">
                             <div className="flex flex-wrap gap-2 max-w-2xl">
                               {['ALL', 'AR/VR', 'AI', 'AI/UGV', 'UGV', 'OTHERS', 'DRONE/AI', 'UAV', 'RCWS/AWS'].map((vertical) => {
                                 const isSelected = approvingUsers[user._id]?.selectedVerticals.includes(vertical);
@@ -1496,7 +1443,7 @@ const Dashboard = () => {
                               })}
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-center align-top">
+                          <td className="px-6 py-4 text-center align-top border-r border-slate-100">
                             <button
                               onClick={() => handleApproveUser(user._id)}
                               className="bg-gradient-to-r from-[#3a5b24] to-emerald-700 hover:from-emerald-800 hover:to-emerald-800 text-white px-6 py-2 rounded-xl font-bold transition-all shadow-md active:scale-95 whitespace-nowrap"

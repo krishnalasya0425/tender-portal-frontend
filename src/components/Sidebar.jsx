@@ -17,7 +17,7 @@ const Sidebar = ({ activeTab, setActiveTab, alertCount = 0 }) => {
         ...(userRole === 'admin' ? [
             { id: "users", label: "Users", icon: <FiUsers /> }
         ] : []),
-        { id: "alerts", label: "Alerts", icon: <FiBell /> },
+        // { id: "alerts", label: "Alerts", icon: <FiBell /> },
         ...(userRole === 'admin' ? [
             { id: "approvals", label: "Approval Requests", icon: <FiCheckCircle /> }
         ] : []),
