@@ -1,4 +1,4 @@
-import { FiHome, FiList, FiBell, FiLogOut, FiMenu, FiX, FiCheckCircle } from "react-icons/fi";
+import { FiHome, FiList, FiBell, FiLogOut, FiMenu, FiX, FiCheckCircle, FiUsers } from "react-icons/fi";
 import { useState } from "react";
 
 const Sidebar = ({ activeTab, setActiveTab, alertCount = 0 }) => {
@@ -14,12 +14,20 @@ const Sidebar = ({ activeTab, setActiveTab, alertCount = 0 }) => {
 
     const menuItems = [
         { id: "tenders", label: "Tenders", icon: <FiList /> },
-        { id: "alerts", label: "Alerts", icon: <FiBell /> },
-        ...(userRole === 'admin' ? [{ id: "approvals", label: "Approval Requests", icon: <FiCheckCircle /> }] : []),
+        ...(userRole === 'admin' ? [
+            { id: "users", label: "Users", icon: <FiUsers /> }
+        ] : []),
+        // { id: "alerts", label: "Alerts", icon: <FiBell /> },
+        ...(userRole === 'admin' ? [
+            { id: "approvals", label: "Approval Requests", icon: <FiCheckCircle /> }
+        ] : []),
     ];
 
     const handleLogout = () => {
-        localStorage.clear();
+        localStorage.removeItem("token");
+        localStorage.removeItem("userEmail");
+        localStorage.removeItem("userRole");
+        localStorage.removeItem("allowedVerticals");
         window.location.href = "/login";
     };
 
