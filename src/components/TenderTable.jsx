@@ -50,7 +50,7 @@ const TenderTable = ({
                                 <tr key={tender._id} className="hover:bg-slate-50/50 transition-colors group">
                                     {columns.map((col) => (
                                         <td key={col} className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">
-                                            {col === "SNo" ? (
+                                            {col === "S.No" ? (
                                                 <span className="font-semibold text-slate-900">{startIndex + index + 1}</span>
                                             ) : editingId === tender._id ? (
                                                 <input
@@ -65,8 +65,8 @@ const TenderTable = ({
                                                 </div>
                                             ) : col === "Status" ? (
                                                 <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${tender[col] === 'Closed' ? 'bg-red-50 text-red-600' :
-                                                        tender[col] === 'Active' ? 'bg-green-50 text-green-600' :
-                                                            'bg-amber-50 text-amber-600'
+                                                    tender[col] === 'Active' ? 'bg-green-50 text-green-600' :
+                                                        'bg-amber-50 text-amber-600'
                                                     }`}>
                                                     {tender[col] || "Pending"}
                                                 </span>

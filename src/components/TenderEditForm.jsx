@@ -4,47 +4,59 @@ import axios from "axios";
 
 const TenderEditForm = ({ tender, onSave, onClose }) => {
   const [formData, setFormData] = useState({
-    TenderNumber: "",
-    Description: "",
-    OrganisationName: "",
-    Vertical: "",
-    Status: "",
-    Deadline: "",
-    BidPrice: "",
-    EMD: "",
-    Gem: "",
-    Prebid: "",
-    L1BidDetails: "",
-    L2BidDetails: "",
-    L3BidDetails: "",
-    MajorSpec: "",
-    CurrentStatusDescription: "",
-    Remarks: "",
-    Link: ""
+    TenderNumber: tender?.TenderNumber || "",
+    Description: tender?.Description || "",
+    OrganisationName: tender?.OrganisationName || "",
+    Vertical: tender?.Vertical || "",
+    Status: tender?.Status || "",
+    DeadlineDate: tender?.Deadline ? new Date(tender.Deadline).toISOString().split('T')[0] : "",
+    DeadlineTime: tender?.Deadline ? (() => {
+      const d = new Date(tender.Deadline);
+      const hours = d.getUTCHours();
+      const minutes = d.getUTCMinutes();
+      return (hours !== 0 || minutes !== 0) ? `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}` : "";
+    })() : "",
+    PrebidDate: tender?.Prebid ? new Date(tender.Prebid).toISOString().split('T')[0] : "",
+    PrebidTime: tender?.Prebid ? (() => {
+      const d = new Date(tender.Prebid);
+      const hours = d.getUTCHours();
+      const minutes = d.getUTCMinutes();
+      return (hours !== 0 || minutes !== 0) ? `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}` : "";
+    })() : "",
+    BidPrice: tender?.BidPrice || "",
+    EMD: tender?.EMD || "",
+    Gem: tender?.Gem || "",
+    L1BidDetails: tender?.L1BidDetails || "",
+    L2BidDetails: tender?.L2BidDetails || "",
+    L3BidDetails: tender?.L3BidDetails || "",
+    MajorSpec: tender?.MajorSpec || "",
+    CurrentStatusDescription: tender?.CurrentStatusDescription || "",
+    Remarks: tender?.Remarks || "",
+    Link: tender?.Link || ""
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Update form if tender prop changes
   useEffect(() => {
-    // Pre-fill form with tender data
     if (tender) {
-      const formattedData = { ...tender };
-      
-      // Format deadline for datetime-local input
-      if (tender.Deadline) {
-        const date = new Date(tender.Deadline);
-        const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
-        formattedData.Deadline = localDate.toISOString().slice(0, 16);
-      }
-      
-      // Format pre-bid date if exists
-      if (tender.Prebid) {
-        const prebidDate = new Date(tender.Prebid);
-        const localPrebidDate = new Date(prebidDate.getTime() - (prebidDate.getTimezoneOffset() * 60000));
-        formattedData.Prebid = localPrebidDate.toISOString().slice(0, 16);
-      }
-      
-      setFormData(formattedData);
+      setFormData({
+        ...tender,
+        DeadlineDate: tender.Deadline ? new Date(tender.Deadline).toISOString().split('T')[0] : "",
+        DeadlineTime: tender.Deadline ? (() => {
+          const d = new Date(tender.Deadline);
+          const hours = d.getUTCHours();
+          const minutes = d.getUTCMinutes();
+          return (hours !== 0 || minutes !== 0) ? `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}` : "";
+        })() : "",
+        PrebidDate: tender.Prebid ? new Date(tender.Prebid).toISOString().split('T')[0] : "",
+        PrebidTime: tender.Prebid ? (() => {
+          const d = new Date(tender.Prebid);
+          const hours = d.getUTCHours();
+          const minutes = d.getUTCMinutes();
+          return (hours !== 0 || minutes !== 0) ? `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}` : "";
+        })() : "",
+      });
     }
   }, [tender]);
 
@@ -59,15 +71,42 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
 
     try {
       const token = localStorage.getItem("token");
-      const updateData = { ...formData };
 
-      // Convert dates to ISO string
-      if (updateData.Deadline) {
-        updateData.Deadline = new Date(updateData.Deadline).toISOString();
+      // Reconstruction of dates
+      let deadline = null;
+      if (formData.DeadlineDate) {
+        if (formData.DeadlineTime && formData.DeadlineTime.trim() !== "") {
+          deadline = `${formData.DeadlineDate}T${formData.DeadlineTime}:00Z`;
+        } else {
+          deadline = `${formData.DeadlineDate}T00:00:00Z`;
+        }
       }
-      if (updateData.Prebid) {
-        updateData.Prebid = new Date(updateData.Prebid).toISOString();
+
+      let prebid = null;
+      if (formData.PrebidDate) {
+        if (formData.PrebidTime && formData.PrebidTime.trim() !== "") {
+          prebid = `${formData.PrebidDate}T${formData.PrebidTime}:00Z`;
+        } else {
+          prebid = `${formData.PrebidDate}T00:00:00Z`;
+        }
       }
+
+      const updateData = {
+        ...formData,
+        Deadline: deadline,
+        Prebid: prebid
+      };
+
+      // Handle GEM status (convert empty string to null for Mongoose enum)
+      if (updateData.Gem === "") {
+        updateData.Gem = null;
+      }
+
+      // Remove the temporary fields
+      delete updateData.DeadlineDate;
+      delete updateData.DeadlineTime;
+      delete updateData.PrebidDate;
+      delete updateData.PrebidTime;
 
       // Remove system fields
       delete updateData._id;
@@ -106,7 +145,7 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
             className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
           />
         </div>
-        
+
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Organisation Name</label>
           <input
@@ -117,7 +156,7 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
             className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
           />
         </div>
-        
+
         <div className="md:col-span-2">
           <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
           <textarea
@@ -128,7 +167,7 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
             className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
           />
         </div>
-        
+
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Vertical *</label>
           <select
@@ -149,7 +188,7 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
             <option value="RCWS/AWS">RCWS/AWS</option>
           </select>
         </div>
-        
+
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
           <select
@@ -173,27 +212,45 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
             <option value="Closed">Closed</option>
           </select>
         </div>
-        
+
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Deadline</label>
-          <input
-            type="datetime-local"
-            name="Deadline"
-            value={formData.Deadline || ""}
-            onChange={handleChange}
-            className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
-          />
+          <div className="flex gap-2">
+            <input
+              type="date"
+              name="DeadlineDate"
+              value={formData.DeadlineDate || ""}
+              onChange={handleChange}
+              className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
+            />
+            <input
+              type="time"
+              name="DeadlineTime"
+              value={formData.DeadlineTime || ""}
+              onChange={handleChange}
+              className="w-1/3 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
+            />
+          </div>
         </div>
-        
+
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Pre-bid Date</label>
-          <input
-            type="datetime-local"
-            name="Prebid"
-            value={formData.Prebid || ""}
-            onChange={handleChange}
-            className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
-          />
+          <div className="flex gap-2">
+            <input
+              type="date"
+              name="PrebidDate"
+              value={formData.PrebidDate || ""}
+              onChange={handleChange}
+              className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
+            />
+            <input
+              type="time"
+              name="PrebidTime"
+              value={formData.PrebidTime || ""}
+              onChange={handleChange}
+              className="w-1/3 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
+            />
+          </div>
         </div>
       </div>
 
@@ -211,7 +268,7 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
               className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">EMD</label>
             <input
@@ -222,7 +279,7 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
               className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">GEM Status</label>
             <select
@@ -254,7 +311,7 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
               className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">L2 Bid Details</label>
             <input
@@ -265,7 +322,7 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
               className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">L3 Bid Details</label>
             <input
@@ -293,7 +350,7 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
               className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Current Status Description</label>
             <textarea
@@ -304,7 +361,7 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
               className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>
             <textarea
@@ -315,7 +372,7 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
               className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Tender Link</label>
             <input

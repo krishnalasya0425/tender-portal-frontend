@@ -3,6 +3,8 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import TenderForm from "./pages/TenderForm";
 import Dashboard from "./pages/Dashboard"
+import ForgotPassword from "./pages/ForgotPassword";
+
 // Protected route wrapper
 const ProtectedRoute = ({ children }) => {
   const token = localStorage.getItem("token");
@@ -33,6 +35,8 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          <Route path="/forgot-password" element={<ForgotPassword />} />
 
 
           {/* Catch-all */}

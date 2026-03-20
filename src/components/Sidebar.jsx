@@ -1,4 +1,4 @@
-import { FiHome, FiList, FiBell, FiLogOut, FiMenu, FiX, FiCheckCircle } from "react-icons/fi";
+import { FiHome, FiList, FiBell, FiLogOut, FiMenu, FiX, FiCheckCircle, FiUsers } from "react-icons/fi";
 import { useState } from "react";
 
 const Sidebar = ({ activeTab, setActiveTab, alertCount = 0 }) => {
