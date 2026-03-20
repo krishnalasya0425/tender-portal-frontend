@@ -33,9 +33,9 @@ const Register = () => {
     setLoading(true);
 
     try {
-      await axios.post("http://localhost:5000/api/auth/register", {
-        email,
-        password
+      await axios.post("https://tenderbackend.edgeforce.in/api/auth/register", { 
+        email, 
+        password 
       });
 
       alert("✅ Registered successfully! Please login.");
