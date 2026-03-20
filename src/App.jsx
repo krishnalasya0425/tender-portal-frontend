@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { HashRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import TenderForm from "./pages/TenderForm";
@@ -15,10 +15,14 @@ function App() {
       <div className="min-h-screen bg-black-100">
         <Routes>
           {/* Landing page : Register */}
-          <Route path="/" element={<Register />} />
+           <Route path="/" element={<Login />} />
 
           {/* Login page */}
-          <Route path="/login" element={<Login />} />
+           <Route path="/login" element={<Login />} />
+
+          {/* Register */}
+          <Route path="/register" element={<Register />} />
+
 
           {/* Protected Tender form */}
           <Route

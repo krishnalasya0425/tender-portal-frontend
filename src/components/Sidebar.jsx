@@ -14,15 +14,14 @@ const Sidebar = ({ activeTab, setActiveTab, alertCount = 0 }) => {
 
     const menuItems = [
         { id: "tenders", label: "Tenders", icon: <FiList /> },
-        { id: "alerts", label: "Alerts", icon: <FiBell /> },
+       
         ...(userRole === 'admin' ? [{ id: "approvals", label: "Approval Requests", icon: <FiCheckCircle /> }] : []),
     ];
 
     const handleLogout = () => {
-        localStorage.clear();
-        window.location.href = "/login";
-    };
-
+  localStorage.clear();
+  window.location.href = "/#/login";
+};
     return (
         <>
             {/* Mobile Menu Button */}

@@ -2,10 +2,11 @@ import { useState } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import logoImg from "../assets/ef-img.png";
-
+import { FiEye, FiEyeOff } from "react-icons/fi";
 const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false); // NEW
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const navigate = useNavigate();
@@ -15,12 +16,14 @@ const Login = () => {
     setError("");
     setLoading(true);
     try {
-      const res = await axios.post("http://192.168.0.160:5000/api/auth/login", { email, password });
+      const res = await axios.post("https://tenderbackend.edgeforce.in/api/auth/login", { email, password });
+
       localStorage.setItem("token", res.data.token);
       localStorage.setItem("userEmail", email);
       localStorage.setItem("userRole", res.data.user.role);
       localStorage.setItem("allowedVerticals", JSON.stringify(res.data.user.allowedVerticals || []));
-      navigate("/tender"); // redirect to Tender form
+
+      navigate("/tender");
     } catch (err) {
       setError(err.response?.data?.message || "Login failed");
     } finally {
@@ -31,7 +34,8 @@ const Login = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-green-50 flex items-center justify-center p-4 ">
       <div className="w-full max-w-2xl">
-        {/* Logo/Header */}
+
+        {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center mb-4">
             <img
@@ -40,12 +44,13 @@ const Login = () => {
               className="w-70 h-16 object-contain mx-auto"
             />
           </div>
-
         </div>
 
         {/* Form Card */}
         <div className="bg-white rounded-2xl shadow-xl p-8">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2 text-center">Tender Portal</h1>
+          <h1 className="text-3xl font-bold text-gray-800 mb-2 text-center">
+            Tender Portal
+          </h1>
 
           {error && (
             <div className="mb-6 p-3 bg-red-50 border border-red-200 text-red-600 rounded-lg text-sm">
@@ -54,27 +59,21 @@ const Login = () => {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Email Field */}
+
+            {/* Email */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Email Address
               </label>
+
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <svg
-                    className="h-5 w-5 text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"
-                    />
+                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
                   </svg>
                 </div>
+
                 <input
                   type="email"
                   placeholder="you@example.com"
@@ -86,39 +85,43 @@ const Login = () => {
               </div>
             </div>
 
-            {/* Password Field */}
+            {/* Password */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Password
               </label>
+
               <div className="relative">
+
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <svg
-                    className="h-5 w-5 text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                    />
+                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
                 </div>
+
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#3a5b24]/30 focus:border-[#3a5b24] outline-none transition-all"
+                  className="block w-full pl-10 pr-10 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#3a5b24]/30 focus:border-[#3a5b24] outline-none transition-all"
                   required
                 />
+
+                {/* Eye Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500"
+                >
+                 {showPassword ? <FiEyeOff /> : <FiEye />}
+                </button>
+
               </div>
             </div>
 
-            {/* Submit Button */}
+            {/* Button */}
             <button
               type="submit"
               disabled={loading}
@@ -143,7 +146,7 @@ const Login = () => {
             <p className="text-gray-600">
               Don't have an account?{" "}
               <Link
-                to="/"
+                to="/register"
                 className="font-medium text-[#3a5b24] hover:text-emerald-800 hover:underline transition-colors"
               >
                 Register here
@@ -164,6 +167,7 @@ const Login = () => {
         <div className="mt-8 text-center text-gray-500 text-sm">
           <p>© {new Date().getFullYear()} Tender Portal. All rights reserved.</p>
         </div>
+
       </div>
     </div>
   );

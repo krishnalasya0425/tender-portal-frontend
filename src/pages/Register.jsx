@@ -33,7 +33,7 @@ const Register = () => {
     setLoading(true);
 
     try {
-      await axios.post("http://192.168.0.160:5000/api/auth/register", { 
+      await axios.post("https://tenderbackend.edgeforce.in/api/auth/register", { 
         email, 
         password 
       });

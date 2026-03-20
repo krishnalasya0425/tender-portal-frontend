@@ -180,7 +180,7 @@ const Dashboard = () => {
 
   const fetchTenders = async () => {
     try {
-      const res = await axios.get("http://localhost:5000/api/tenders", {
+      const res = await axios.get("http://tenderbackend.edgeforce.in/api/tenders", {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -206,7 +206,7 @@ const Dashboard = () => {
   // Fetch alerts (tenders due in next 7 days)
   const fetchAlerts = async () => {
     try {
-      const tendersRes = await axios.get("http://localhost:5000/api/tenders", {
+      const tendersRes = await axios.get("http://tenderbackend.edgeforce.in/api/tenders", {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -288,7 +288,7 @@ const Dashboard = () => {
 
   const fetchPendingUsers = async () => {
     try {
-      const res = await axios.get("http://localhost:5000/api/auth/pending-users", {
+      const res = await axios.get("http://tenderbackend.edgeforce.in/api/auth/pending-users", {
         headers: { Authorization: `Bearer ${token}` },
       });
       setPendingUsers(res.data);
@@ -312,7 +312,7 @@ const Dashboard = () => {
         return;
       }
 
-      await axios.put(`http://localhost:5000/api/auth/approve-user/${userId}`,
+      await axios.put(`http://tenderbackend.edgeforce.in/api/auth/approve-user/${userId}`,
         { allowedVerticals: selectedVerticals },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -404,7 +404,7 @@ const handleDownloadPDF = () => {
       setEmailStatus({ type: "loading", message: "Sending reminder..." });
 
       const response = await axios.post(
-        `http://localhost:5000/api/tenders/send-reminder/${tenderId}`,
+        `http://tenderbackend.edgeforce.in/api/tenders/send-reminder/${tenderId}`,
         { recipientEmail: userEmail },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -469,7 +469,7 @@ const handleDownloadPDF = () => {
     if (!window.confirm("Are you sure you want to delete this tender?")) return;
 
     try {
-      await axios.delete(`http://localhost:5000/api/tenders/${id}`, {
+      await axios.delete(`http://tenderbackend.edgeforce.in/api/tenders/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       fetchTenders();

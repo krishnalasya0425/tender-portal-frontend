@@ -77,7 +77,7 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
       delete updateData.createdBy;
 
       await axios.put(
-        `http://localhost:5000/api/tenders/${tender._id}`,
+        `http://tenderbackend.edgeforce.in/api/tenders/${tender._id}`,
         updateData,
         { headers: { Authorization: `Bearer ${token}` } }
       );
