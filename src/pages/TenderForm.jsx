@@ -111,7 +111,7 @@ const TenderForm = ({ onSave, onClose, tender }) => {
 
     try {
       await axios.post(
-        "http://localhost:5000/api/tenders",
+        "http://tenderbackend.edgeforce.in/api/tenders",
         payload,
         { headers: { Authorization: `Bearer ${token}` } }
       );
