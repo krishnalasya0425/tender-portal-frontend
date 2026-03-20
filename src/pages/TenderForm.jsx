@@ -2,7 +2,6 @@ import { useState } from "react";
 import axios from "axios";
 import { FiX, FiCheck } from "react-icons/fi";
 
-
 const VERTICAL_OPTIONS = [
   "AR/VR",
   "AI",
@@ -227,10 +226,10 @@ const TenderForm = ({ onSave, onClose, tender }) => {
         onSubmit={handleSubmit}
         className="space-y-3 max-h-[70vh] overflow-y-auto pr-2"
       >
-        {/* TenderNumber - Required */}
+        {/* Tender Number - Required */}
         <div>
           <label className="block font-medium mb-1 text-sm text-gray-700">
-            TenderNumber *
+            Tender Number *
           </label>
           <input
             type="text"
@@ -238,7 +237,7 @@ const TenderForm = ({ onSave, onClose, tender }) => {
             value={formData.TenderNumber}
             onChange={handleChange}
             className="border border-gray-300 p-2 w-full rounded"
-
+            required
           />
         </div>
 
@@ -300,7 +299,7 @@ const TenderForm = ({ onSave, onClose, tender }) => {
               value={formData.DeadlineDate}
               onChange={handleChange}
               className="border border-gray-300 p-2 w-full rounded"
-
+              required
             />
             <input
               type="time"
@@ -344,10 +343,10 @@ const TenderForm = ({ onSave, onClose, tender }) => {
           </select>
         </div>
 
-        {/* BidPrice */}
+        {/* Bid Price */}
         <div>
           <label className="block font-medium mb-1 text-sm text-gray-700">
-            BidPrice
+            Bid Price
           </label>
           <input
             type="text"
@@ -358,10 +357,10 @@ const TenderForm = ({ onSave, onClose, tender }) => {
           />
         </div>
 
-        {/* CurrentStatusDescription */}
+        {/* Current Status Description */}
         <div>
           <label className="block font-medium mb-1 text-sm text-gray-700">
-            CurrentStatusDescription
+            Current Status Description
           </label>
           <input
             type="text"
@@ -392,10 +391,10 @@ const TenderForm = ({ onSave, onClose, tender }) => {
           </select>
         </div>
 
-        {/* OrganisationName */}
+        {/* Organisation Name */}
         <div>
           <label className="block font-medium mb-1 text-sm text-gray-700">
-            OrganisationName
+            Organisation Name
           </label>
           <input
             type="text"
@@ -434,10 +433,10 @@ const TenderForm = ({ onSave, onClose, tender }) => {
           />
         </div>
 
-        {/* L1BidDetails */}
+        {/* L1 Bid Details */}
         <div>
           <label className="block font-medium mb-1 text-sm text-gray-700">
-            L1BidDetails
+            L1 Bid Details
           </label>
           <input
             type="text"
@@ -448,10 +447,10 @@ const TenderForm = ({ onSave, onClose, tender }) => {
           />
         </div>
 
-        {/* L2BidDetails */}
+        {/* L2 Bid Details */}
         <div>
           <label className="block font-medium mb-1 text-sm text-gray-700">
-            L2BidDetails
+            L2 Bid Details
           </label>
           <input
             type="text"
@@ -462,10 +461,10 @@ const TenderForm = ({ onSave, onClose, tender }) => {
           />
         </div>
 
-        {/* L3BidDetails */}
+        {/* L3 Bid Details */}
         <div>
           <label className="block font-medium mb-1 text-sm text-gray-700">
-            L3BidDetails
+            L3 Bid Details
           </label>
           <input
             type="text"
@@ -476,10 +475,10 @@ const TenderForm = ({ onSave, onClose, tender }) => {
           />
         </div>
 
-        {/* MajorSpec */}
+        {/* Major Spec */}
         <div>
           <label className="block font-medium mb-1 text-sm text-gray-700">
-            MajorSpec
+            Major Spec
           </label>
           <input
             type="text"

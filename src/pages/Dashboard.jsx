@@ -578,48 +578,68 @@ const Dashboard = () => {
   };
 
   // Filter and Sort tenders
-  const filteredTenders = tenders.filter((tender) => {
-    const matchesSearch = !searchTerm ||
-      tender.TenderNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tender.Description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tender.OrganisationName?.toLowerCase().includes(searchTerm.toLowerCase());
+// Filter and Sort tenders - FIXED VERSION
+const filteredTenders = tenders.filter((tender) => {
+  const matchesSearch = !searchTerm ||
+    tender.TenderNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    tender.Description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    tender.OrganisationName?.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesVertical = !filterVertical || tender.Vertical === filterVertical;
-    const matchesStatus = !filterStatus || tender.Status === filterStatus;
+  const matchesVertical = !filterVertical || tender.Vertical === filterVertical;
+  const matchesStatus = !filterStatus || tender.Status === filterStatus;
 
-    // Date range filter
-    let matchesDateRange = true;
-    if (tender.Deadline) {
-      const tenderDate = new Date(tender.Deadline);
-      if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        if (tenderDate < start) matchesDateRange = false;
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        if (tenderDate > end) matchesDateRange = false;
-      }
-    } else if (startDate || endDate) {
-      matchesDateRange = false;
+  // Date range filter
+  let matchesDateRange = true;
+  if (tender.Deadline) {
+    const tenderDate = new Date(tender.Deadline);
+    if (startDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      if (tenderDate < start) matchesDateRange = false;
     }
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      if (tenderDate > end) matchesDateRange = false;
+    }
+  } else if (startDate || endDate) {
+    matchesDateRange = false;
+  }
 
-    return matchesSearch && matchesVertical && matchesStatus && matchesDateRange;
-  }).sort((a, b) => {
-    let valA = a[sortField];
-    let valB = b[sortField];
+  return matchesSearch && matchesVertical && matchesStatus && matchesDateRange;
+}).sort((a, b) => {
+  // Sort by the selected field
+  let valA = a[sortField];
+  let valB = b[sortField];
 
-    // Handle null values
-    if (valA === null || valA === undefined) return sortOrder === 'asc' ? 1 : -1;
-    if (valB === null || valB === undefined) return sortOrder === 'asc' ? -1 : 1;
+  // Handle null/undefined values
+  if (valA === null || valA === undefined) return sortOrder === 'asc' ? 1 : -1;
+  if (valB === null || valB === undefined) return sortOrder === 'asc' ? -1 : 1;
 
-    // Numeric comparison for index or prices if applicable (optional, strings work for most)
-    // For dates, standard string comparison works for ISO strings
-    if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
-    if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
-    return 0;
-  });
+  // For Deadline field, compare as dates
+  if (sortField === "Deadline") {
+    const dateA = new Date(valA).getTime();
+    const dateB = new Date(valB).getTime();
+    if (isNaN(dateA)) return sortOrder === 'asc' ? 1 : -1;
+    if (isNaN(dateB)) return sortOrder === 'asc' ? -1 : 1;
+    return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+  }
+  
+  // For numeric fields like BidPrice and EMD, compare as numbers
+  if (sortField === "BidPrice" || sortField === "EMD") {
+    const numA = parseFloat(valA) || 0;
+    const numB = parseFloat(valB) || 0;
+    return sortOrder === 'asc' ? numA - numB : numB - numA;
+  }
+  
+  // For string fields, compare as strings
+  const strA = String(valA).toLowerCase();
+  const strB = String(valB).toLowerCase();
+  
+  if (strA < strB) return sortOrder === 'asc' ? -1 : 1;
+  if (strA > strB) return sortOrder === 'asc' ? 1 : -1;
+  return 0;
+});
 
   // Calculate pagination
   const totalPages = Math.ceil(filteredTenders.length / ITEMS_PER_PAGE);
@@ -1058,69 +1078,80 @@ const Dashboard = () => {
               {/* Table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left border-collapse border border-slate-200">
-                  <thead className="bg-emerald-50/50 text-slate-600 font-semibold uppercase tracking-wider text-[11px] border-b border-slate-200">
-                    <tr>
-                      {COLUMNS.map((col) => {
-                        const isSortable = col !== "SNo";
-                        const isActive = sortField === col;
+               <thead className="bg-emerald-50/50 text-slate-600 font-semibold uppercase tracking-wider text-[11px] border-b border-slate-200">
+  <tr>
+    {COLUMNS.map((col) => {
+      // Only make Deadline sortable
+      const isSortable = col === "Deadline";
+      const isActive = sortField === col;
 
-                        // Define column width classes based on column type
-                        const getColumnWidth = () => {
-                          switch (col) {
-                            case "SNo":
-                              return "w-12"; // Serial number - narrower
-                            case "TenderNumber":
-                              return "w-44"; // Tender number - medium
-                            case "Description":
-                              return "min-w-[280px] max-w-[380px]"; // Description - slightly narrower
-                            case "Vertical":
-                              return "w-24"; // Vertical - narrower
-                            case "Deadline":
-                              return "min-w-[160px] max-w-[200px]"; // Deadline - wider
-                            case "Status":
-                              return "min-w-[100px] max-w-[120px]";
-                            case "BidPrice":
-                              return "w-28"; // Bid Price - narrower
-                            case "EMD":
-                              return "w-24"; // EMD - narrower
-                            default:
-                              return "";
-                          }
-                        };
+      // Define column width classes based on column type
+      const getColumnWidth = () => {
+        switch (col) {
+          case "SNo":
+            return "w-12";
+          case "TenderNumber":
+            return "w-44";
+          case "Description":
+            return "min-w-[280px] max-w-[380px]";
+          case "Vertical":
+            return "w-24";
+          case "Deadline":
+            return "min-w-[160px] max-w-[200px]";
+          case "Status":
+            return "min-w-[100px] max-w-[120px]";
+          case "BidPrice":
+            return "w-28";
+          case "EMD":
+            return "w-24";
+          default:
+            return "";
+        }
+      };
 
-                        return (
-                          <th
-                            key={col}
-                            className={`px-3 py-2 border-r border-slate-200 whitespace-nowrap text-slate-900 ${getColumnWidth()} ${isSortable ? 'cursor-pointer hover:bg-emerald-100/50 transition-colors group' : ''}`}
-                            onClick={() => {
-                              if (isSortable) {
-                                if (isActive) {
-                                  setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-                                } else {
-                                  setSortField(col);
-                                  setSortOrder('asc');
-                                }
-                              }
-                            }}
-                          >
-                            <div className="flex items-center gap-1">
-                              {col === "SNo" ? "SNo" :
+      return (
+        <th
+          key={col}
+          className={`px-3 py-2 border-r border-slate-200 whitespace-nowrap text-slate-900 ${getColumnWidth()} ${isSortable ? 'cursor-pointer hover:bg-emerald-100/50 transition-colors group' : ''}`}
+          onClick={() => {
+            if (isSortable) {
+              if (isActive) {
+                setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+              } else {
+                setSortField(col);
+                setSortOrder('asc');
+              }
+            }
+          }}
+        >
+          <div className="flex items-center gap-1">
+            {col === "SNo" ? "SNo" :
+              col === "BidPrice" ? "Bid Price" :
+                col === "EMD" ? "EMD" :
+                  col === "TenderNumber" ? "Tender Number" :
+                    col === "CurrentStatusDescription" ? "Current Status Description" :
+                      col === "OrganisationName" ? "Organisation Name" :
+                        col === "L1BidDetails" ? "L1 Bid Details" :
+                          col === "L2BidDetails" ? "L2 Bid Details" :
+                            col === "L3BidDetails" ? "L3 Bid Details" :
+                              col === "MajorSpec" ? "Major Spec" :
                                 col === "BidPrice" ? "Bid Price" :
-                                  col === "EMD" ? "EMD" :
-                                    col.replace(/([A-Z])/g, ' $1').trim()}
-                              {isActive ? (
-                                sortOrder === 'asc' ? <FiArrowUp className="text-emerald-700" size={12} /> : <FiArrowDown className="text-emerald-700" size={12} />
-                              ) : (
-                                isSortable && <FiArrowUp className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" size={12} />
-                              )}
-                            </div>
-                          </th>
-                        );
-                      })}
-                      <th className="px-3 py-2 text-center text-slate-900 w-28 border-r border-slate-200">Actions</th>
-                    </tr>
-                  </thead>
-
+                                  col.replace(/([A-Z])/g, ' $1').trim()}
+            {/* Only show arrows for Deadline column and only when it's sortable */}
+            {col === "Deadline" && isSortable && (
+              isActive ? (
+                sortOrder === 'asc' ? <FiArrowUp className="text-emerald-700" size={12} /> : <FiArrowDown className="text-emerald-700" size={12} />
+              ) : (
+                <FiArrowUp className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" size={12} />
+              )
+            )}
+          </div>
+        </th>
+      );
+    })}
+    <th className="px-3 py-2 text-center text-slate-900 w-28 border-r border-slate-200">Actions</th>
+  </tr>
+</thead>
                   <tbody className="divide-y divide-slate-100">
                     {currentTenders.length === 0 ? (
                       <tr>
