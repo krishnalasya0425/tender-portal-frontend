@@ -97,7 +97,7 @@ const Dashboard = () => {
   // Advanced filtering and sorting state
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [sortField, setSortField] = useState("Deadline");
+  const [sortField, setSortField] = useState(null);
   const [sortOrder, setSortOrder] = useState("asc"); // 'asc' or 'desc'
   const [copied, setCopied] = useState(false);
 
@@ -579,6 +579,7 @@ const Dashboard = () => {
 
   // Filter and Sort tenders
 // Filter and Sort tenders - FIXED VERSION
+// Filter and Sort tenders - FIXED VERSION with conditional sorting
 const filteredTenders = tenders.filter((tender) => {
   const matchesSearch = !searchTerm ||
     tender.TenderNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -608,6 +609,9 @@ const filteredTenders = tenders.filter((tender) => {
 
   return matchesSearch && matchesVertical && matchesStatus && matchesDateRange;
 }).sort((a, b) => {
+  // Only sort if a sort field is selected
+  if (!sortField) return 0;
+  
   // Sort by the selected field
   let valA = a[sortField];
   let valB = b[sortField];
@@ -881,9 +885,10 @@ const filteredTenders = tenders.filter((tender) => {
                         setFilterStatus("");
                         setStartDate("");
                         setEndDate("");
-                        setSortField("Deadline");
+                        setSortField(null);
                         setSortOrder("asc");
                         setCurrentPage(1);
+                        
                       }}
                       className="text-xs font-bold text-slate-400 hover:text-red-500 transition-colors whitespace-nowrap px-2"
                     >

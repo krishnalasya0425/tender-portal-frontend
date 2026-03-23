@@ -1,6 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
-import { FiX, FiCheck } from "react-icons/fi";
+import { FiX, FiCheck  } from "react-icons/fi";
 
 const VERTICAL_OPTIONS = [
   "AR/VR",
@@ -53,6 +53,7 @@ const TenderForm = ({ onSave, onClose, tender }) => {
       })()
       : "",
     Status: tender?.Status || "",
+    Location: tender?.Location || "",   
     BidPrice: tender?.BidPrice || "",
     CurrentStatusDescription: tender?.CurrentStatusDescription || "",
     Gem: tender?.Gem || "",
@@ -98,6 +99,7 @@ const TenderForm = ({ onSave, onClose, tender }) => {
       CurrentStatusDescription: formData.CurrentStatusDescription,
       Gem: formData.Gem === "" ? null : formData.Gem,
       OrganisationName: formData.OrganisationName,
+      Location: formData.Location,
       EMD: formData.EMD,
       Prebid: formData.Prebid,
       L1BidDetails: formData.L1BidDetails,
@@ -129,6 +131,7 @@ const TenderForm = ({ onSave, onClose, tender }) => {
         CurrentStatusDescription: "",
         Gem: "",
         OrganisationName: "",
+        Location: "",
         EMD: "",
         Prebid: "",
         L1BidDetails: "",
@@ -237,7 +240,7 @@ const TenderForm = ({ onSave, onClose, tender }) => {
             value={formData.TenderNumber}
             onChange={handleChange}
             className="border border-gray-300 p-2 w-full rounded"
-            required
+            
           />
         </div>
 
@@ -299,7 +302,7 @@ const TenderForm = ({ onSave, onClose, tender }) => {
               value={formData.DeadlineDate}
               onChange={handleChange}
               className="border border-gray-300 p-2 w-full rounded"
-              required
+             
             />
             <input
               type="time"
@@ -404,6 +407,20 @@ const TenderForm = ({ onSave, onClose, tender }) => {
             className="border border-gray-300 p-2 w-full rounded"
           />
         </div>
+
+        {/* Location */}
+<div>
+  <label className="block font-medium mb-1 text-sm text-gray-700">
+    Location
+  </label>
+  <input
+    type="text"
+    name="Location"
+    value={formData.Location}
+    onChange={handleChange}
+    className="border border-gray-300 p-2 w-full rounded"
+  />
+</div>
 
         {/* EMD */}
         <div>

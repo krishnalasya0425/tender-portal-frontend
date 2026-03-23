@@ -32,7 +32,8 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
     MajorSpec: tender?.MajorSpec || "",
     CurrentStatusDescription: tender?.CurrentStatusDescription || "",
     Remarks: tender?.Remarks || "",
-    Link: tender?.Link || ""
+    Link: tender?.Link || "",
+    Location: tender?.Location || "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -42,6 +43,7 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
     if (tender) {
       setFormData({
         ...tender,
+        Location: tender.Location || "",
         DeadlineDate: tender.Deadline ? new Date(tender.Deadline).toISOString().split('T')[0] : "",
         DeadlineTime: tender.Deadline ? (() => {
           const d = new Date(tender.Deadline);
@@ -156,6 +158,20 @@ const TenderEditForm = ({ tender, onSave, onClose }) => {
             className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
           />
         </div>
+
+        <div>
+  <label className="block text-sm font-medium text-slate-700 mb-1">
+    Location
+  </label>
+  <input
+    type="text"
+    name="Location"
+    value={formData.Location || ""}
+    onChange={handleChange}
+    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3a5b24]/20 focus:border-[#3a5b24] transition-all outline-none text-sm"
+    placeholder="e.g. Hyderabad, Delhi"
+  />
+</div>
 
         <div className="md:col-span-2">
           <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
